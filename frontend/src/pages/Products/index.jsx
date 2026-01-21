@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Header } from "../../components/ui/header";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
@@ -6,68 +6,65 @@ import { Button } from "../../components/ui/button";
 import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 import { FaEdit, FaTrashAlt, FaPlus, FaFilter, FaTh, FaList, FaBarcode } from "react-icons/fa";
+import {
+    createProduct,
+    createVariant,
+    listProducts,
+    listProductsCatalog,
+    updateProduct,
+    updateVariant as updateVariantApi,
+} from "../../services/products";
 
 // Categories and Brands for filters
 const categories = ["Đồ uống", "Thực phẩm", "Vật dụng", "Bánh kẹo"];
 const brands = ["Vinamilk", "Coca-Cola", "Pepsi", "Orion", "Khác"];
 
-// Initial products with variants
-const initialProducts = [
-    {
-        id: 1,
-        sku: "SKU-001",
-        name: "Sữa tươi Vinamilk",
-        category: "Đồ uống",
-        brand: "Vinamilk",
-        unit: "Hộp",
-        status: "active",
-        image: "🥛",
-        variants: [
-            { id: 1, code: "SKU-001-1L", barcode: "8934673001014", price: 35000, cost: 28000, minStock: 10, stock: 120 },
-            { id: 2, code: "SKU-001-500ML", barcode: "8934673001021", price: 20000, cost: 16000, minStock: 20, stock: 85 },
-        ],
-    },
-    {
-        id: 2,
-        sku: "SKU-002",
-        name: "Bánh mì Việt Nam",
-        category: "Thực phẩm",
-        brand: "Khác",
-        unit: "Ổ",
-        status: "active",
-        image: "🍞",
-        variants: [
-            { id: 1, code: "SKU-002-REG", barcode: "8934673002011", price: 15000, cost: 8000, minStock: 5, stock: 80 },
-        ],
-    },
-    {
-        id: 3,
-        sku: "SKU-003",
-        name: "Coca-Cola",
-        category: "Đồ uống",
-        brand: "Coca-Cola",
-        unit: "Lon",
-        status: "active",
-        image: "🥤",
-        variants: [
-            { id: 1, code: "SKU-003-330ML", barcode: "5449000000996", price: 12000, cost: 9000, minStock: 30, stock: 200 },
-            { id: 2, code: "SKU-003-1.5L", barcode: "5449000001009", price: 25000, cost: 18000, minStock: 15, stock: 45 },
-        ],
-    },
-    {
-        id: 4,
-        sku: "SKU-004",
-        name: "Bánh Oreo",
-        category: "Bánh kẹo",
-        brand: "Orion",
-        unit: "Gói",
-        status: "inactive",
-        image: "🍪",
-        variants: [
-            { id: 1, code: "SKU-004-REG", barcode: "8935024111111", price: 25000, cost: 18000, minStock: 10, stock: 0 },
-        ],
-    },
-];
+const toNumber = (value, fallback = 0) => {
+    if (value === null || value === undefined || value === "") return fallback;
+    const n = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+
+const getDefaultStoreId = () => {
+    const candidates = [
+        localStorage.getItem("storeId"),
+        localStorage.getItem("store_id"),
+        localStorage.getItem("selectedStoreId"),
+    ];
+    for (const c of candidates) {
+        const n = Number(c);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 1;
+};
+
+const mapProductFromApi = (p, variantStockById) => {
+    const variants = (p.product_variants ?? []).map((v) => {
+        const variantId = v.id;
+        return {
+            id: variantId,
+            variantId,
+            code: v.variant_code ?? "",
+            barcode: v.barcode ?? "",
+            price: toNumber(v.price, 0),
+            cost: toNumber(v.cost_price, 0),
+            minStock: toNumber(v.min_stock, 0),
+            stock: toNumber(variantStockById?.get(String(variantId)) ?? 0, 0),
+        };
+    });
+
+    return {
+        id: p.id,
+        sku: p.sku ?? "",
+        name: p.name ?? "",
+        category: p.category ?? "",
+        brand: p.brand ?? "",
+        unit: p.unit ?? "",
+        status: p.is_active ? "active" : "inactive",
+        image: "📦",
+        variants,
+    };
+};
 
 const getStatusBadge = (status) => {
     return status === "active" ? (
@@ -78,11 +75,15 @@ const getStatusBadge = (status) => {
 };
 
 export default function Products() {
-    const [products, setProducts] = useState(initialProducts);
+    const [products, setProducts] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadError, setLoadError] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
     const [viewMode, setViewMode] = useState("grid"); // grid or table
     const [filters, setFilters] = useState({ category: "", brand: "", status: "" });
     const [showFilters, setShowFilters] = useState(false);
+
+    const storeId = useMemo(() => getDefaultStoreId(), []);
 
     // Modal states
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -102,12 +103,54 @@ export default function Products() {
         variants: [{ id: 1, code: "", barcode: "", price: "", cost: "", minStock: 0, stock: 0 }],
     });
 
-    // Filter products
+    const fetchProducts = async () => {
+        try {
+            setIsLoading(true);
+            setLoadError("");
+
+            const [productsResult, catalogResult] = await Promise.allSettled([
+                listProducts({ take: 200, skip: 0 }),
+                listProductsCatalog({ storeId, take: 200, skip: 0 }),
+            ]);
+
+            const productsRes = productsResult.status === "fulfilled" ? productsResult.value : null;
+            const catalogRes = catalogResult.status === "fulfilled" ? catalogResult.value : null;
+
+            const variantStockById = new Map();
+            for (const item of catalogRes?.items ?? []) {
+                const variantId = item?.variant?.id;
+                const qty = item?.inventory?.quantity;
+                if (variantId !== undefined && variantId !== null) {
+                    variantStockById.set(String(variantId), toNumber(qty, 0));
+                }
+            }
+
+            const mapped = (productsRes?.items ?? []).map((p) => mapProductFromApi(p, variantStockById));
+            setProducts(mapped);
+
+            if (!productsRes) {
+                const err = productsResult.reason;
+                setLoadError(err?.response?.data?.error || err?.message || "Không tải được danh sách sản phẩm");
+            }
+        } catch (err) {
+            setLoadError(err?.response?.data?.error || err?.message || "Không tải được danh sách sản phẩm");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchProducts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Filter products (client-side)
     const filteredProducts = products.filter((product) => {
+        const term = searchTerm.toLowerCase();
         const matchSearch =
-            product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            product.variants.some((v) => v.barcode.includes(searchTerm));
+            product.name.toLowerCase().includes(term) ||
+            product.sku.toLowerCase().includes(term) ||
+            product.variants.some((v) => String(v.barcode || "").includes(searchTerm));
         const matchCategory = !filters.category || product.category === filters.category;
         const matchBrand = !filters.brand || product.brand === filters.brand;
         const matchStatus = !filters.status || product.status === filters.status;
@@ -184,7 +227,16 @@ export default function Products() {
             ...formData,
             variants: [
                 ...formData.variants,
-                { id: formData.variants.length + 1, code: "", barcode: "", price: "", cost: "", minStock: 0, stock: 0 },
+                {
+                    id: `tmp-${Date.now()}-${formData.variants.length + 1}`,
+                    variantId: null,
+                    code: "",
+                    barcode: "",
+                    price: "",
+                    cost: "",
+                    minStock: 0,
+                    stock: 0,
+                },
             ],
         });
     };
@@ -205,30 +257,45 @@ export default function Products() {
 
     // Handle add product
     const handleAddProduct = (e) => {
-        e.preventDefault();
-        const errors = validateForm(formData);
-        if (Object.keys(errors).length > 0) {
-            setFormErrors(errors);
-            return;
-        }
+        (async () => {
+            e.preventDefault();
+            const errors = validateForm(formData);
+            if (Object.keys(errors).length > 0) {
+                setFormErrors(errors);
+                return;
+            }
 
-        const newProduct = {
-            id: Math.max(...products.map((p) => p.id)) + 1,
-            ...formData,
-            image: "📦",
-            variants: formData.variants.map((v, i) => ({
-                ...v,
-                id: i + 1,
-                price: parseFloat(v.price),
-                cost: parseFloat(v.cost),
-                minStock: parseInt(v.minStock),
-                stock: parseInt(v.stock) || 0,
-            })),
-        };
+            try {
+                const payload = {
+                    sku: formData.sku,
+                    name: formData.name,
+                    brand: formData.brand,
+                    category: formData.category,
+                    unit: formData.unit,
+                    isActive: formData.status === "active",
+                    variants: (formData.variants ?? []).map((v) => ({
+                        variantCode: v.code,
+                        barcode: v.barcode,
+                        price: toNumber(v.price, 0),
+                        costPrice: toNumber(v.cost, 0),
+                        minStock: toNumber(v.minStock, 0),
+                        isActive: true,
+                    })),
+                };
 
-        setProducts([...products, newProduct]);
-        setIsAddModalOpen(false);
-        resetForm();
+                const created = await createProduct(payload);
+                await fetchProducts();
+
+                setIsAddModalOpen(false);
+                resetForm();
+                return created;
+            } catch (err) {
+                setFormErrors({
+                    ...formErrors,
+                    sku: err?.response?.data?.error || err?.message || "Không tạo được sản phẩm",
+                });
+            }
+        })();
     };
 
     // Open edit modal
@@ -243,6 +310,7 @@ export default function Products() {
             status: product.status,
             variants: product.variants.map((v) => ({
                 ...v,
+                variantId: v.variantId ?? v.id,
                 price: v.price.toString(),
                 cost: v.cost.toString(),
                 minStock: v.minStock.toString(),
@@ -255,34 +323,85 @@ export default function Products() {
 
     // Handle update product
     const handleUpdateProduct = (e) => {
-        e.preventDefault();
-        const errors = validateForm(formData, true);
-        if (Object.keys(errors).length > 0) {
-            setFormErrors(errors);
-            return;
-        }
+        (async () => {
+            e.preventDefault();
+            const errors = validateForm(formData, true);
+            if (Object.keys(errors).length > 0) {
+                setFormErrors(errors);
+                return;
+            }
 
-        setProducts(
-            products.map((p) =>
-                p.id === selectedProduct.id
-                    ? {
-                        ...p,
-                        ...formData,
-                        variants: formData.variants.map((v, i) => ({
-                            ...v,
-                            id: i + 1,
-                            price: parseFloat(v.price),
-                            cost: parseFloat(v.cost),
-                            minStock: parseInt(v.minStock),
-                            stock: parseInt(v.stock) || 0,
-                        })),
+            try {
+                const productId = selectedProduct.id;
+
+                await updateProduct(productId, {
+                    sku: formData.sku,
+                    name: formData.name,
+                    brand: formData.brand,
+                    category: formData.category,
+                    unit: formData.unit,
+                    isActive: formData.status === "active",
+                });
+
+                const incomingVariantIds = new Set(
+                    (formData.variants ?? [])
+                        .map((v) => v.variantId)
+                        .filter((id) => id !== null && id !== undefined)
+                        .map((id) => Number(id))
+                        .filter((id) => Number.isFinite(id))
+                        .map(String)
+                );
+
+                const existingVariantIds = new Set(
+                    (selectedProduct.variants ?? [])
+                        .map((v) => v.variantId ?? v.id)
+                        .filter((id) => id !== null && id !== undefined)
+                        .map((id) => Number(id))
+                        .filter((id) => Number.isFinite(id))
+                        .map(String)
+                );
+
+                const removedVariantIds = [];
+                for (const id of existingVariantIds) {
+                    if (!incomingVariantIds.has(id)) removedVariantIds.push(id);
+                }
+
+                // Upsert variants
+                for (const v of formData.variants ?? []) {
+                    const payload = {
+                        variantCode: v.code,
+                        barcode: v.barcode,
+                        price: toNumber(v.price, 0),
+                        costPrice: toNumber(v.cost, 0),
+                        minStock: toNumber(v.minStock, 0),
+                        isActive: true,
+                    };
+
+                    const variantId = v.variantId;
+                    if (variantId !== null && variantId !== undefined && Number.isFinite(Number(variantId))) {
+                        await updateVariantApi(Number(variantId), payload);
+                    } else {
+                        await createVariant(productId, payload);
                     }
-                    : p
-            )
-        );
-        setIsEditModalOpen(false);
-        setSelectedProduct(null);
-        resetForm();
+                }
+
+                // Deactivate removed variants
+                for (const id of removedVariantIds) {
+                    await updateVariantApi(Number(id), { isActive: false });
+                }
+
+                await fetchProducts();
+
+                setIsEditModalOpen(false);
+                setSelectedProduct(null);
+                resetForm();
+            } catch (err) {
+                setFormErrors({
+                    ...formErrors,
+                    name: err?.response?.data?.error || err?.message || "Không cập nhật được sản phẩm",
+                });
+            }
+        })();
     };
 
     // Handle delete (actually set to inactive)
@@ -292,10 +411,16 @@ export default function Products() {
     };
 
     const handleDeleteProduct = () => {
-        // Set to inactive instead of deleting (as per spec)
-        setProducts(products.map((p) => (p.id === selectedProduct.id ? { ...p, status: "inactive" } : p)));
-        setIsDeleteModalOpen(false);
-        setSelectedProduct(null);
+        (async () => {
+            try {
+                await updateProduct(selectedProduct.id, { isActive: false });
+                setProducts(products.map((p) => (p.id === selectedProduct.id ? { ...p, status: "inactive" } : p)));
+                setIsDeleteModalOpen(false);
+                setSelectedProduct(null);
+            } catch (err) {
+                setLoadError(err?.response?.data?.error || err?.message || "Không ngừng bán được sản phẩm");
+            }
+        })();
     };
 
     // Format currency
@@ -493,7 +618,7 @@ export default function Products() {
                                         className="w-full rounded-md border px-2 py-1.5 text-sm bg-gray-100"
                                         placeholder="0"
                                         min="0"
-                                        readOnly={buttonText === "Cập nhật"}
+                                        readOnly
                                     />
                                 </div>
                             </div>
@@ -527,7 +652,7 @@ export default function Products() {
     );
 
     return (
-        <div className="space-y-6">
+            <div className="space-y-6">
             {/* Header */}
             <header className="flex justify-between items-start">
                 <div>
@@ -538,6 +663,12 @@ export default function Products() {
                     <FaPlus className="mr-2" /> Thêm sản phẩm mới
                 </Button>
             </header>
+
+            {loadError && (
+                <Card>
+                    <CardContent className="p-4 text-sm text-red-600">{loadError}</CardContent>
+                </Card>
+            )}
 
             {/* Toolbar */}
             <div className="flex items-center gap-4">
@@ -634,6 +765,7 @@ export default function Products() {
             {/* Products Grid View */}
             {viewMode === "grid" && (
                 <main className="grid grid-cols-4 gap-4">
+                    {isLoading && <div className="col-span-4 text-sm text-gray-500">Đang tải sản phẩm...</div>}
                     {filteredProducts.map((product) => (
                         <Card key={product.id} className={product.status === "inactive" ? "opacity-60" : ""}>
                             <CardContent className="flex flex-col items-center space-y-3 p-5">
@@ -684,6 +816,13 @@ export default function Products() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
+                                    {isLoading && (
+                                        <tr>
+                                            <td className="p-4 text-sm text-gray-500" colSpan={8}>
+                                                Đang tải sản phẩm...
+                                            </td>
+                                        </tr>
+                                    )}
                                     {filteredProducts.map((product) => (
                                         <tr
                                             key={product.id}
