@@ -1,0 +1,9 @@
+// Hàm này giả vờ là API: Nó hứa (Promise) là sau 1 giây sẽ trả về kết quả OK
+const mockDeleteAPI = (id) => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      console.log(`Đã gửi lệnh xóa ID ${id} lên Server ảo...`);
+      resolve(true); // Giải quyết lời hứa (Báo thành công)
+    }, 500); // Giả vờ mạng lag 0.5 giây cho giống thật
+  });
+};

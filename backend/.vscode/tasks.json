@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Prisma DB Push",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"-y",
+				"prisma",
+				"db",
+				"push",
+				"--schema",
+				"prisma/schema.prisma"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

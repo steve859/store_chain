@@ -1,0 +1,16 @@
+node_modules/
+dist/
+/.env
+
+coverage/
+*.log
+
+/src/generated/prisma
+
+docs/
+
+/src/generated/prisma
+
+pgadmin-data/
+
+/src/generated/prisma

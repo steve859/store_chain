@@ -1,0 +1,295 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model audit_logs {
+  id          BigInt    @id @default(autoincrement())
+  user_id     Int?
+  action      String
+  object_type String?
+  object_id   String?
+  payload     Json?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  users       users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model customers {
+  id             Int              @id @default(autoincrement())
+  name           String?
+  phone          String?
+  email          String?
+  loyalty_id     String?
+  created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  invoices       invoices[]
+  loyalty_points loyalty_points[]
+
+  @@index([phone], map: "idx_customers_phone")
+}
+
+model inventories {
+  id               Int               @id @default(autoincrement())
+  store_id         Int?
+  variant_id       Int?
+  quantity         Decimal?          @default(0) @db.Decimal
+  reserved         Decimal?          @default(0) @db.Decimal
+  last_cost        Decimal?          @db.Decimal(14, 2)
+  last_update      DateTime?         @default(now()) @db.Timestamptz(6)
+  stores           stores?           @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([store_id, variant_id])
+  @@index([store_id], map: "idx_inventories_store")
+  @@index([store_id, variant_id], map: "idx_inventories_store_variant")
+}
+
+model invoice_items {
+  id               Int               @id @default(autoincrement())
+  invoice_id       Int?
+  variant_id       Int?
+  quantity         Decimal           @db.Decimal
+  unit_price       Decimal           @db.Decimal(14, 2)
+  unit_cost        Decimal?          @db.Decimal(14, 2)
+  line_total       Decimal?          @db.Decimal(18, 2)
+  invoices         invoices?         @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([variant_id], map: "idx_invoice_items_variant")
+}
+
+model invoices {
+  id             Int             @id @default(autoincrement())
+  invoice_number String?         @unique
+  store_id       Int?
+  customer_id    Int?
+  subtotal       Decimal?        @default(0) @db.Decimal(18, 2)
+  tax            Decimal?        @default(0) @db.Decimal(14, 2)
+  discount       Decimal?        @default(0) @db.Decimal(14, 2)
+  total          Decimal         @default(0) @db.Decimal(18, 2)
+  payment_method String?
+  created_by     Int?
+  created_at     DateTime?       @default(now()) @db.Timestamptz(6)
+  invoice_items  invoice_items[]
+  users          users?          @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers      customers?      @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores         stores?         @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_invoices_created_at")
+  @@index([store_id], map: "idx_invoices_store")
+  @@index([store_id, created_at], map: "idx_invoices_store_created_at")
+}
+
+model loyalty_points {
+  id          Int        @id @default(autoincrement())
+  customer_id Int?
+  points      Int
+  source      String?
+  created_at  DateTime?  @default(now()) @db.Timestamptz(6)
+  customers   customers? @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model product_variants {
+  id                   Int                    @id @default(autoincrement())
+  product_id           Int?
+  variant_code         String?
+  name                 String?
+  barcode              String?                @unique
+  price                Decimal                @default(0) @db.Decimal(14, 2)
+  cost_price           Decimal?               @default(0) @db.Decimal(14, 2)
+  min_stock            Decimal?               @db.Decimal
+  is_active            Boolean?               @default(true)
+  created_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  inventories          inventories[]
+  invoice_items        invoice_items[]
+  products             products?              @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  purchase_items       purchase_items[]
+  stock_lots           stock_lots[]
+  stock_movements      stock_movements[]
+  store_transfer_items store_transfer_items[]
+
+  @@unique([product_id, variant_code])
+  @@index([barcode], map: "idx_variants_barcode")
+  @@index([variant_code], map: "idx_variants_variant_code")
+}
+
+model products {
+  id               Int                @id @default(autoincrement())
+  sku              String?            @unique
+  name             String
+  brand            String?
+  category         String?
+  description      String?
+  unit             String
+  is_active        Boolean?           @default(true)
+  created_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  product_variants product_variants[]
+
+  @@index([name], map: "idx_products_name")
+}
+
+model promotions {
+  id         Int       @id @default(autoincrement())
+  code       String?   @unique
+  name       String?
+  type       String?
+  value      Decimal?  @db.Decimal(14, 2)
+  start_at   DateTime? @db.Timestamptz(6)
+  end_at     DateTime? @db.Timestamptz(6)
+  active     Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([code], map: "idx_promotions_code")
+}
+
+model purchase_items {
+  id                Int               @id @default(autoincrement())
+  purchase_order_id Int?
+  variant_id        Int?
+  quantity          Decimal           @db.Decimal
+  unit_cost         Decimal           @db.Decimal(14, 2)
+  line_total        Decimal?          @db.Decimal(18, 2)
+  purchase_orders   purchase_orders?  @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants  product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model purchase_orders {
+  id             Int              @id @default(autoincrement())
+  supplier_id    Int?
+  store_id       Int?
+  order_number   String?          @unique
+  status         String?          @default("draft")
+  total_amount   Decimal?         @default(0) @db.Decimal(18, 2)
+  created_by     Int?
+  created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  purchase_items purchase_items[]
+  users          users?           @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores         stores?          @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  suppliers      suppliers?       @relation(fields: [supplier_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([store_id], map: "idx_purchase_orders_store")
+  @@index([supplier_id], map: "idx_purchase_orders_supplier")
+}
+
+model roles {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  users       users[]
+}
+
+model stock_lots {
+  id                 Int               @id @default(autoincrement())
+  variant_id         Int?
+  store_id           Int?
+  lot_code           String?
+  quantity           Decimal           @db.Decimal
+  quantity_remaining Decimal           @db.Decimal
+  cost               Decimal?          @db.Decimal(14, 2)
+  received_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  expiry_date        DateTime?         @db.Date
+  stores             stores?           @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_variants   product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([variant_id, store_id], map: "idx_stock_lots_variant_store")
+}
+
+model stock_movements {
+  id               BigInt            @id @default(autoincrement())
+  store_id         Int?
+  variant_id       Int?
+  change           Decimal           @db.Decimal
+  movement_type    String
+  reference_id     String?
+  reason           String?
+  created_by       Int?
+  created_at       DateTime?         @default(now()) @db.Timestamptz(6)
+  users            users?            @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores           stores?           @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([store_id, created_at], map: "idx_stock_movements_store_time")
+  @@index([variant_id], map: "idx_stock_movements_variant")
+}
+
+model store_transfer_items {
+  id               Int               @id @default(autoincrement())
+  transfer_id      Int?
+  variant_id       Int?
+  quantity         Decimal           @db.Decimal
+  received_quantity Decimal          @default(0) @db.Decimal
+  store_transfers  store_transfers?  @relation(fields: [transfer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model store_transfers {
+  id                                           Int                    @id @default(autoincrement())
+  transfer_number                              String?                @unique
+  from_store_id                                Int?
+  to_store_id                                  Int?
+  status                                       String?                @default("pending")
+  created_by                                   Int?
+  created_at                                   DateTime?              @default(now()) @db.Timestamptz(6)
+  store_transfer_items                         store_transfer_items[]
+  users                                        users?                 @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores_store_transfers_from_store_idTostores stores?                @relation("store_transfers_from_store_idTostores", fields: [from_store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores_store_transfers_to_store_idTostores   stores?                @relation("store_transfers_to_store_idTostores", fields: [to_store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model stores {
+  id                                                    Int               @id @default(autoincrement())
+  code                                                  String            @unique
+  name                                                  String
+  address                                               String?
+  phone                                                 String?
+  timezone                                              String?           @default("Asia/Ho_Chi_Minh")
+  is_active                                             Boolean?          @default(true)
+  created_at                                            DateTime?         @default(now()) @db.Timestamptz(6)
+  inventories                                           inventories[]
+  invoices                                              invoices[]
+  purchase_orders                                       purchase_orders[]
+  stock_lots                                            stock_lots[]
+  stock_movements                                       stock_movements[]
+  store_transfers_store_transfers_from_store_idTostores store_transfers[] @relation("store_transfers_from_store_idTostores")
+  store_transfers_store_transfers_to_store_idTostores   store_transfers[] @relation("store_transfers_to_store_idTostores")
+  users                                                 users[]
+}
+
+model suppliers {
+  id              Int               @id @default(autoincrement())
+  name            String
+  contact_name    String?
+  phone           String?
+  email           String?
+  address         String?
+  note            String?
+  created_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  purchase_orders purchase_orders[]
+
+  @@index([name], map: "idx_suppliers_name")
+}
+
+model users {
+  id              Int               @id @default(autoincrement())
+  username        String            @unique
+  password_hash   String
+  full_name       String?
+  email           String?           @unique
+  phone           String?
+  role_id         Int?
+  store_id        Int?
+  is_active       Boolean?          @default(true)
+  created_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?         @default(now()) @db.Timestamptz(6)
+  audit_logs      audit_logs[]
+  invoices        invoices[]
+  purchase_orders purchase_orders[]
+  stock_movements stock_movements[]
+  store_transfers store_transfers[]
+  roles           roles?            @relation(fields: [role_id], references: [id], onUpdate: NoAction)
+  stores          stores?           @relation(fields: [store_id], references: [id], onUpdate: NoAction)
+}
