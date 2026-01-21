@@ -403,7 +403,7 @@ const Users = () => {
 
     return (
         <div>
-            <Header title="Quản lý Người dùng" />
+            <Header title="Quản lý Nhân sự" />
 
             {/* Toolbar */}
             <div className="flex items-center justify-between mb-6">

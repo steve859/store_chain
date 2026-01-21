@@ -13,6 +13,7 @@ import PurchaseOrders from '../pages/PurchaseOrders';
 import InventoryAdjustment from '../pages/InventoryAdjustment';
 import Promotions from '../pages/Promotions';
 import Return from '../pages/POS/Return';
+import Users from '../pages/Users';
 
 const EmployeeLayout = () => {
     const [currentView, setCurrentView] = useState("dashboard");
@@ -41,7 +42,8 @@ const EmployeeLayout = () => {
         { id: "promotions", name: "Khuyến Mãi", icon: <FaTags />, component: Promotions },
         { id: "return", name: "Trả Hàng", icon: <FaUndo />, component: Return },
         { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
-        { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+        // { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+        { id: "users", name: "Nhân sự", icon: <FaUsers />, component: Users },
         { id: "complaints", name: "Khiếu Nại", icon: <FaExclamationCircle />, component: Complaints },
     ];
 

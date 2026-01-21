@@ -43,8 +43,8 @@ const AdminLayout = () => {
     { id: "transfer", name: "Chuyển Kho", icon: <FaExchangeAlt />, component: Transfer },
     { id: "promotions", name: "Khuyến Mãi", icon: <FaTags />, component: Promotions },
     { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
-    { id: "users", name: "Người Dùng", icon: <FaUsers />, component: Users },
-    { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+    { id: "users", name: "Nhân sự", icon: <FaUsers />, component: Users },
+    // { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
     { id: "complaints", name: "Khiếu Nại", icon: <FaExclamationCircle />, component: ComplaintsAdmin },
   ];
 
