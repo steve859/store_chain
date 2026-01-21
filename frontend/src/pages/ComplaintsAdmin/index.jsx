@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/button";
 import { SearchBar } from "../../components/ui/searchbar";
 import { FaEye, FaTrashAlt } from "react-icons/fa";
 import Modal from "../../components/ui/modal";
+import { deleteComplaint, listComplaints, updateComplaintStatus } from "../../services/complaints";
 
 export default function ComplaintsAdmin() {
     const [complaints, setComplaints] = useState([]);
@@ -12,69 +13,18 @@ export default function ComplaintsAdmin() {
     const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
     const [selectedComplaint, setSelectedComplaint] = useState(null);
 
-    // Load complaints from localStorage with dummy data
-    useEffect(() => {
-        let storedComplaints = JSON.parse(localStorage.getItem("complaints") || "[]");
-
-        // Add dummy data if no complaints exist
-        if (storedComplaints.length === 0) {
-            storedComplaints = [
-                {
-                    id: "CPL-001",
-                    storeName: "Cửa hàng Q1",
-                    employeeName: "Nguyễn Văn A",
-                    reason: "Trễ giờ làm việc",
-                    description: "Nhân viên thường xuyên đến muộn 15-20 phút mỗi ngày trong tuần qua. Điều này ảnh hưởng đến hoạt động của cửa hàng.",
-                    image: null,
-                    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: "Chờ xử lý",
-                },
-                {
-                    id: "CPL-002",
-                    storeName: "Cửa hàng Q2",
-                    employeeName: "Trần Thị B",
-                    reason: "Thái độ không phù hợp",
-                    description: "Nhân viên có thái độ không tốt với khách hàng, đã nhận được nhiều phản hồi tiêu cực từ khách.",
-                    image: null,
-                    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: "Đang xử lý",
-                },
-                {
-                    id: "CPL-003",
-                    storeName: "Cửa hàng Q1",
-                    employeeName: "Lê Văn C",
-                    reason: "Vấn đề về lương thưởng",
-                    description: "Lương tháng này bị thiếu so với hợp đồng. Đã báo cho quản lý nhưng chưa được giải quyết.",
-                    image: null,
-                    date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: "Chờ xử lý",
-                },
-                {
-                    id: "CPL-004",
-                    storeName: "Cửa hàng Q3",
-                    employeeName: "Phạm Thị D",
-                    reason: "Môi trường làm việc",
-                    description: "Điều hòa bị hỏng đã 1 tuần nhưng chưa được sửa chữa. Nhân viên làm việc trong môi trường nóng bức.",
-                    image: null,
-                    date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: "Đã giải quyết",
-                },
-                {
-                    id: "CPL-005",
-                    storeName: "Cửa hàng Q2",
-                    employeeName: "Hoàng Văn E",
-                    reason: "Không hoàn thành công việc",
-                    description: "Nhân viên thường xuyên không hoàn thành công việc được giao, ảnh hưởng đến tiến độ chung.",
-                    image: null,
-                    date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-                    status: "Chờ xử lý",
-                },
-            ];
-
-            localStorage.setItem("complaints", JSON.stringify(storedComplaints));
+    const refresh = async (q = "") => {
+        try {
+            const data = await listComplaints({ q, take: 200, skip: 0 });
+            setComplaints(data.items || []);
+        } catch (err) {
+            console.error(err);
+            setComplaints([]);
         }
+    };
 
-        setComplaints(storedComplaints);
+    useEffect(() => {
+        refresh("");
     }, []);
 
     const filtered = useMemo(() => {
@@ -89,24 +39,37 @@ export default function ComplaintsAdmin() {
         );
     }, [complaints, query]);
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!confirm("Xóa khiếu nại này?")) return;
-
-        const updatedComplaints = complaints.filter((c) => c.id !== id);
-        setComplaints(updatedComplaints);
-        localStorage.setItem("complaints", JSON.stringify(updatedComplaints));
+        try {
+            await deleteComplaint(id);
+            const updatedComplaints = complaints.filter((c) => c.id !== id);
+            setComplaints(updatedComplaints);
+            if (selectedComplaint?.id === id) {
+                setSelectedComplaint(null);
+                setIsDetailsModalOpen(false);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Xóa khiếu nại thất bại.");
+        }
     };
 
-    const handleStatusChange = (complaintId, newStatus) => {
-        const updatedComplaints = complaints.map((c) =>
-            c.id === complaintId ? { ...c, status: newStatus } : c
-        );
-        setComplaints(updatedComplaints);
-        localStorage.setItem("complaints", JSON.stringify(updatedComplaints));
+    const handleStatusChange = async (complaintId, newStatus) => {
+        try {
+            const updated = await updateComplaintStatus(complaintId, newStatus);
 
-        // Update selected complaint if it's the one being changed
-        if (selectedComplaint?.id === complaintId) {
-            setSelectedComplaint({ ...selectedComplaint, status: newStatus });
+            const updatedComplaints = complaints.map((c) =>
+                c.id === complaintId ? { ...c, status: updated.status } : c
+            );
+            setComplaints(updatedComplaints);
+
+            if (selectedComplaint?.id === complaintId) {
+                setSelectedComplaint({ ...selectedComplaint, status: updated.status });
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Cập nhật trạng thái thất bại.");
         }
     };
 

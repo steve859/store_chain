@@ -36,7 +36,7 @@ const AdminLayout = () => {
     { id: "inventory", name: "Điều Chỉnh Kho", icon: <FaWarehouse />, component: InventoryAdjustment },
     { id: "purchase", name: "Nhập Hàng", icon: <FaTruck />, component: PurchaseOrders },
     { id: "transfer", name: "Chuyển Kho", icon: <FaExchangeAlt />, component: Transfer },
-    { id: "promotions", name: "Khuyến Mãi", icon: <FaTags />, component: Promotions },
+    { id: "promotions", name: "Khuyến mãi", icon: <FaTags />, component: Promotions },
     { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
     { id: "users", name: "Người Dùng", icon: <FaUsers />, component: Users },
     { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },

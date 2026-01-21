@@ -9,24 +9,10 @@ import {
     FaPause, FaHistory, FaUserAlt, FaTags, FaReceipt, FaBarcode, FaExclamationTriangle, FaCashRegister, FaLock
 } from "react-icons/fa";
 import { useShift } from "../../components/shift/ShiftManager";
+import { apiPromotionToUi, listPromotions } from "../../services/promotions";
+import { checkoutSale, listPosCatalog } from "../../services/posSales";
 
-// Dummy products for POS
-const posProducts = [
-    { id: 1, sku: "SKU-001", barcode: "8934673001014", name: "Sữa tươi Vinamilk 1L", price: 35000, stock: 50, image: "🥛", category: "Đồ uống" },
-    { id: 2, sku: "SKU-002", barcode: "5449000000996", name: "Coca-Cola 330ml", price: 12000, stock: 100, image: "🥤", category: "Đồ uống" },
-    { id: 3, sku: "SKU-003", barcode: "8935024111111", name: "Bánh Oreo", price: 25000, stock: 30, image: "🍪", category: "Bánh kẹo" },
-    { id: 4, sku: "SKU-004", barcode: "8934563001012", name: "Mì gói Hảo Hảo", price: 5000, stock: 200, image: "🍜", category: "Thực phẩm" },
-    { id: 5, sku: "SKU-005", barcode: "6920152410012", name: "Nước suối Aquafina", price: 8000, stock: 80, image: "💧", category: "Đồ uống" },
-    { id: 6, sku: "SKU-006", barcode: "8934680014129", name: "Bánh mì sandwich", price: 20000, stock: 25, image: "🍞", category: "Thực phẩm" },
-    { id: 7, sku: "SKU-007", barcode: "8934680014130", name: "Trà xanh C2", price: 10000, stock: 60, image: "🍵", category: "Đồ uống" },
-    { id: 8, sku: "SKU-008", barcode: "8934680014131", name: "Snack Lay's", price: 15000, stock: 40, image: "🥔", category: "Bánh kẹo" },
-];
-
-// Dummy promotions
-const promotions = [
-    { id: 1, code: "SALE10", name: "Giảm 10%", type: "percent", value: 10, minOrder: 50000 },
-    { id: 2, code: "SAVE20K", name: "Giảm 20.000đ", type: "fixed", value: 20000, minOrder: 100000 },
-];
+// Promotions are loaded from backend
 
 // Dummy customers
 const customers = [
@@ -44,11 +30,78 @@ const POS = () => {
     // Shift management
     const { isShiftOpen, requestOpenModal } = useShift();
 
+    const [posProducts, setPosProducts] = useState([]);
+    const [posLoading, setPosLoading] = useState(false);
+    const [posError, setPosError] = useState(null);
+
     const [searchTerm, setSearchTerm] = useState("");
     const [cart, setCart] = useState([]);
     const [selectedCustomer, setSelectedCustomer] = useState(customers[0]);
     const [selectedPromotion, setSelectedPromotion] = useState(null);
+    const [availablePromotions, setAvailablePromotions] = useState([]);
     const [filterCategory, setFilterCategory] = useState("");
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadCatalog = async () => {
+            setPosLoading(true);
+            setPosError(null);
+            try {
+                const data = await listPosCatalog({ take: 200, skip: 0 });
+                if (!isMounted) return;
+                const mapped = (data?.items || []).map((row) => ({
+                    id: row.sku_id,
+                    sku: row.sku_code,
+                    barcode: row.barcode || "",
+                    name: row.product_name,
+                    price: Number.parseFloat(String(row.price)),
+                    stock: Number(row.stock || 0),
+                    image: "🛒",
+                    category: "Khác",
+                    unit: row.unit,
+                }));
+                setPosProducts(mapped);
+            } catch (e) {
+                if (!isMounted) return;
+                setPosProducts([]);
+                setPosError(e?.response?.data?.error || e?.message || "Không thể tải danh mục POS");
+            } finally {
+                if (!isMounted) return;
+                setPosLoading(false);
+            }
+        };
+
+        const loadPromotions = async () => {
+            try {
+                const apiPromos = await listPromotions();
+                if (!isMounted) return;
+                const now = new Date();
+                // Map to UI shape and keep only active + in-date-range promotions
+                const mapped = (apiPromos || [])
+                    .map(apiPromotionToUi)
+                    .filter((p) => p.active !== false)
+                    .filter((p) => {
+                        const start = p.startDate ? new Date(p.startDate) : null;
+                        const end = p.endDate ? new Date(p.endDate) : null;
+                        if (start && !Number.isNaN(start.getTime()) && now < start) return false;
+                        if (end && !Number.isNaN(end.getTime()) && now > end) return false;
+                        return true;
+                    });
+                setAvailablePromotions(mapped);
+            } catch {
+                // Non-blocking for POS; fallback to no promotions
+                if (!isMounted) return;
+                setAvailablePromotions([]);
+            }
+        };
+
+        loadCatalog();
+        loadPromotions();
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     // Modal states
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -66,7 +119,7 @@ const POS = () => {
     const [heldOrders, setHeldOrders] = useState([]);
 
     // Get unique categories
-    const categories = [...new Set(posProducts.map((p) => p.category))];
+    const categories = [...new Set(posProducts.map((p) => p.category).filter(Boolean))];
 
     // Filter products
     const filteredProducts = posProducts.filter((product) => {
@@ -174,14 +227,32 @@ const POS = () => {
     };
 
     // Complete payment
-    const completePayment = () => {
+    const completePayment = async () => {
         if (paymentMethod === "cash" && parseFloat(cashReceived) < total) {
             alert("Số tiền nhận chưa đủ!");
             return;
         }
 
-        // Here you would call API to save the transaction
-        alert(`Thanh toán thành công!\nTổng: ${formatCurrency(total)}\nPhương thức: ${paymentMethod === "cash" ? "Tiền mặt" : "Thẻ"}`);
+        try {
+            const payload = {
+                paymentMethod,
+                paidAmount: paymentMethod === "cash" ? parseFloat(cashReceived) : total,
+                totalAmount: total,
+                items: cart.map((it) => ({
+                    skuId: it.id,
+                    quantity: it.quantity,
+                    price: it.price,
+                })),
+            };
+            const result = await checkoutSale(payload);
+            const saleId = result?.sale?.id;
+            alert(
+                `Thanh toán thành công!\nMã đơn: ${saleId || "-"}\nTổng: ${formatCurrency(total)}\nPhương thức: ${paymentMethod === "cash" ? "Tiền mặt" : "Thẻ"}`,
+            );
+        } catch (e) {
+            alert(e?.response?.data?.error || e?.message || "Không thể lưu đơn hàng");
+            return;
+        }
 
         clearCart();
         setCashReceived("");
@@ -210,7 +281,32 @@ const POS = () => {
                 if (product) {
                     addToCart(product);
                     setSearchTerm("");
+                    return;
                 }
+
+                // Fallback: try server lookup by barcode
+                listPosCatalog({ barcode: searchTerm, take: 1, skip: 0 })
+                    .then((data) => {
+                        const row = data?.items?.[0];
+                        if (!row) return;
+                        const mapped = {
+                            id: row.sku_id,
+                            sku: row.sku_code,
+                            barcode: row.barcode || "",
+                            name: row.product_name,
+                            price: Number.parseFloat(String(row.price)),
+                            stock: Number(row.stock || 0),
+                            image: "🛒",
+                            category: "Khác",
+                            unit: row.unit,
+                        };
+                        setPosProducts((prev) => (prev.some((p) => p.id === mapped.id) ? prev : [mapped, ...prev]));
+                        addToCart(mapped);
+                        setSearchTerm("");
+                    })
+                    .catch(() => {
+                        // ignore
+                    });
             }
         };
 
@@ -601,7 +697,10 @@ const POS = () => {
             {/* Promotion Modal */}
             <Modal isOpen={isPromotionModalOpen} onClose={() => setIsPromotionModalOpen(false)} title="Chọn khuyến mãi">
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {promotions.map((promo) => (
+                    {availablePromotions.length === 0 && (
+                        <div className="text-sm text-gray-500">Chưa có khuyến mãi khả dụng</div>
+                    )}
+                    {availablePromotions.map((promo) => (
                         <button
                             key={promo.id}
                             onClick={() => applyPromotion(promo)}

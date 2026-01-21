@@ -33,7 +33,7 @@ const EmployeeLayout = () => {
         { id: "products", name: "Sản Phẩm", icon: <FaBox />, component: Products },
         { id: "inventory", name: "Điều Chỉnh Kho", icon: <FaWarehouse />, component: InventoryAdjustment },
         { id: "purchase", name: "Nhập Hàng", icon: <FaTruck />, component: PurchaseOrders },
-        { id: "promotions", name: "Khuyến Mãi", icon: <FaTags />, component: Promotions },
+        { id: "promotions", name: "Khuyến mãi", icon: <FaTags />, component: Promotions },
         { id: "return", name: "Trả Hàng", icon: <FaUndo />, component: Return },
         { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
         { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },

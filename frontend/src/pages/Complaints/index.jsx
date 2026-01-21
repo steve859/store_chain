@@ -4,6 +4,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { FaUpload, FaPaperPlane, FaEye } from "react-icons/fa";
 import Modal from "../../components/ui/modal";
+import { createComplaint, listMyComplaints } from "../../services/complaints";
 
 // Default complaint reasons
 const complaintReasons = [
@@ -34,13 +35,25 @@ export default function Complaints() {
         loadMyComplaints();
     }, []);
 
-    const loadMyComplaints = () => {
-        const allComplaints = JSON.parse(localStorage.getItem("complaints") || "[]");
-        // Filter complaints by current employee (mock - would use real user session)
-        const userComplaints = allComplaints.filter(
-            (c) => c.employeeName === "Employee User"
-        );
-        setMyComplaints(userComplaints);
+    const getEmployeeName = () => {
+        const email = localStorage.getItem('userEmail') || '';
+        const name = email.includes('@') ? email.split('@')[0] : '';
+        return name ? name : 'Employee User';
+    };
+
+    const getStoreName = () => {
+        return localStorage.getItem('storeName') || 'Cửa hàng Q1';
+    };
+
+    const loadMyComplaints = async () => {
+        try {
+            const employeeName = getEmployeeName();
+            const data = await listMyComplaints({ employeeName, take: 200, skip: 0 });
+            setMyComplaints(data.items || []);
+        } catch (err) {
+            console.error(err);
+            setMyComplaints([]);
+        }
     };
 
     const handleImageChange = (e) => {
@@ -57,31 +70,18 @@ export default function Complaints() {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
-
-        // Simulate API call
-        setTimeout(() => {
-            // Store complaints in localStorage for demo
-            const existingComplaints = JSON.parse(
-                localStorage.getItem("complaints") || "[]"
-            );
-            const newComplaint = {
-                id: `CPL-${String(existingComplaints.length + 1).padStart(3, "0")}`,
-                storeName: "Cửa hàng Q1", // Mock data - would come from user session
-                employeeName: "Employee User", // Mock data - would come from user session
+        try {
+            await createComplaint({
+                storeName: getStoreName(),
+                employeeName: getEmployeeName(),
                 reason: formData.reason,
                 description: formData.description,
                 image: imagePreview,
-                date: new Date().toISOString(),
-                status: "Chờ xử lý",
-            };
+            });
 
-            existingComplaints.push(newComplaint);
-            localStorage.setItem("complaints", JSON.stringify(existingComplaints));
-
-            setIsSubmitting(false);
             alert("Đã gửi khiếu nại thành công!");
 
             // Reset form
@@ -92,9 +92,13 @@ export default function Complaints() {
             });
             setImagePreview(null);
 
-            // Reload complaints
-            loadMyComplaints();
-        }, 1000);
+            await loadMyComplaints();
+        } catch (err) {
+            console.error(err);
+            alert("Gửi khiếu nại thất bại. Vui lòng thử lại.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleRemoveImage = () => {
