@@ -122,6 +122,10 @@ const getStatusBadge = (status) => {
 export default function Orders() { 
     // 2. Tạo State để quản lý Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [editingOrder, setEditingOrder] = useState(null);
+    const [deletingOrder, setDeletingOrder] = useState(null);
 
     // State lưu dữ liệu form (để gửi lên server sau này)
     const [formData, setFormData] = useState({
@@ -141,7 +145,33 @@ export default function Orders() {
         setIsModalOpen(false); // Đóng modal sau khi lưu
         alert("Đã thêm sản phẩm thành công!");
     };
-    return(
+
+    const handleEditClick = (order) => {
+        setEditingOrder(order);
+        setIsEditModalOpen(true);
+    };
+
+    const handleEditSave = (e) => {
+        e.preventDefault();
+        console.log("Cập nhật đơn hàng:", editingOrder);
+        // Gọi API update tại đây...
+        
+        setIsEditModalOpen(false);
+        setEditingOrder(null);
+        alert("Đã cập nhật đơn hàng thành công!");
+    };
+    const handleOpenDeleteModal = (order) => {
+        setDeletingOrder(order);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleDeleteOrder = () => {
+        console.log("Xóa đơn hàng:", deletingOrder);
+        // Gửi API delete tại đây...
+        setIsDeleteModalOpen(false);
+        setDeletingOrder(null);
+        alert("Đã xóa đơn hàng thành công!");
+    };    return(
         <div className="space-y-8">
             <header className="flex justify-between h-16 ">
                 <div>
@@ -185,12 +215,13 @@ export default function Orders() {
                                             <div>
                                                 <Button 
                                                   variant="ghost"
+                                                  onClick={() => handleEditClick(order)}
                                                 >
                                                     <FaEdit size={10}/>    
                                                 </Button> 
                                                 <Button 
                                                   variant="ghost"
-                                                  onDelete={() => onDeleteOrder(order.id, order.customer)}
+                                                  onClick={() => handleOpenDeleteModal(order)}
                                                 >
                                                     <FaTrashAlt size={10}/>    
                                                 </Button>
@@ -203,10 +234,11 @@ export default function Orders() {
                     </div>
                 </CardContent>
             </Card>
+            {/* Modal Thêm Đơn Hàng */}
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title="Thêm sản phẩm mới"
+                title="Thêm đơn hàng mới"
             >
                 <form onSubmit={handleSave} className="space-y-4">
                     <div className="flex flex-col space-y-2">
@@ -330,7 +362,189 @@ export default function Orders() {
                         </Button>
                     </div>
                 </form>
-            </Modal>  
+            </Modal>
+
+            {/* Modal Chỉnh Sửa Đơn Hàng */}
+            <Modal
+                isOpen={isEditModalOpen}
+                onClose={() => {
+                    setIsEditModalOpen(false);
+                    setEditingOrder(null);
+                }}
+                title="Chỉnh sửa đơn hàng"
+            >
+                {editingOrder && (
+                    <form onSubmit={handleEditSave} className="space-y-4">
+                        <div className="flex flex-col space-y-2">
+                            <label className="text-sm font-medium">Mã đơn hàng</label>
+                            <input 
+                                value={editingOrder.id}
+                                disabled
+                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm bg-gray-100 cursor-not-allowed"
+                            />
+                        </div>
+                        <div className="flex flex-col space-y-2">
+                            <label className="text-sm font-medium">Tên khách hàng</label>
+                            <input 
+                                value={editingOrder.customer}
+                                onChange={(e) => setEditingOrder({...editingOrder, customer: e.target.value})}
+                                placeholder="Ví dụ: Nguyễn Văn A" 
+                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Cửa hàng</label>
+                            <select 
+                                value={editingOrder.store}
+                                onChange={(e) => setEditingOrder({...editingOrder, store: e.target.value})}
+                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            >
+                                <option>Cửa hàng Q1</option>
+                                <option>Cửa hàng Q2</option>
+                                <option>Cửa hàng Q3</option>
+                            </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Tổng tiền</label>
+                                <input
+                                    value={editingOrder.total}
+                                    onChange={(e) => setEditingOrder({...editingOrder, total: e.target.value})}
+                                    placeholder="0" 
+                                    className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Số lượng</label>
+                                <input
+                                    type="number"
+                                    value={editingOrder.items}
+                                    onChange={(e) => setEditingOrder({...editingOrder, items: e.target.value})}
+                                    placeholder="0"
+                                    className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Ngày đặt</label>
+                            <input
+                                type="date"
+                                value={editingOrder.date}
+                                onChange={(e) => setEditingOrder({...editingOrder, date: e.target.value})}
+                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Trạng thái</label>
+                            <div className="flex items-center gap-6 mt-2">
+                                <div className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        id="edit-status-completed"
+                                        name="edit-status"
+                                        value="completed"
+                                        checked={editingOrder.status === "completed"}
+                                        onChange={(e) => setEditingOrder({ ...editingOrder, status: e.target.value })}
+                                        className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="edit-status-completed" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                        Hoàn thành
+                                    </label>
+                                </div>
+                                <div className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        id="edit-status-pending"
+                                        name="edit-status"
+                                        value="pending"
+                                        checked={editingOrder.status === "pending"}
+                                        onChange={(e) => setEditingOrder({ ...editingOrder, status: e.target.value })}
+                                        className="h-4 w-4 border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="edit-status-pending" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                        Đang chờ xử lý
+                                    </label>
+                                </div>
+                                <div className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        id="edit-status-processing"
+                                        name="edit-status"
+                                        value="processing"
+                                        checked={editingOrder.status === "processing"}
+                                        onChange={(e) => setEditingOrder({ ...editingOrder, status: e.target.value })}
+                                        className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="edit-status-processing" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                        Đang xử lý
+                                    </label>
+                                </div>
+                                <div className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        id="edit-status-cancelled"
+                                        name="edit-status"
+                                        value="cancelled"
+                                        checked={editingOrder.status === "cancelled"}
+                                        onChange={(e) => setEditingOrder({ ...editingOrder, status: e.target.value })}
+                                        className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="edit-status-cancelled" className="text-sm font-medium text-gray-700 cursor-pointer">
+                                        Đã hủy
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 flex justify-end gap-2">
+                            <Button type="button" variant="outline" onClick={() => {
+                                setIsEditModalOpen(false);
+                                setEditingOrder(null);
+                            }}>
+                                Hủy bỏ
+                            </Button>
+                            <Button type="submit">
+                                Cập nhật đơn hàng
+                            </Button>
+                        </div>
+                    </form>
+                )}
+            </Modal>
+
+            {/* Delete Confirmation Modal */}
+            <Modal
+                isOpen={isDeleteModalOpen}
+                onClose={() => {
+                    setIsDeleteModalOpen(false);
+                    setDeletingOrder(null);
+                }}
+                title="Xác nhận xóa"
+            >
+                <div className="space-y-4">
+                    <p>
+                        Bạn có chắc chắn muốn xóa đơn hàng{" "}
+                        <strong>{deletingOrder?.id}</strong> của{" "}
+                        <strong>{deletingOrder?.customer}</strong>?
+                    </p>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => {
+                            setIsDeleteModalOpen(false);
+                            setDeletingOrder(null);
+                        }}>
+                            Hủy
+                        </Button>
+                        <Button
+                            onClick={handleDeleteOrder}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Xóa
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div> 
     );        
 }

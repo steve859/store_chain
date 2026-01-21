@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { FaThLarge, FaBox, FaUserTie, FaShoppingCart, FaSignOutAlt, FaExclamationCircle, FaTruck, FaWarehouse, FaTags, FaUndo } from 'react-icons/fa';
 import { cn } from '../lib/utils';
+import Modal from '../components/ui/modal';
+import { Button } from '../components/ui/button';
 import Dashboard from '../pages/DashBoard';
 import Products from '../pages/Products';
 import Employee from '../pages/Employees';
@@ -14,16 +16,19 @@ import Return from '../pages/POS/Return';
 
 const EmployeeLayout = () => {
     const [currentView, setCurrentView] = useState("dashboard");
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const navigate = useNavigate();
 
     const handleLogout = () => {
-        const confirmed = window.confirm('Bạn có chắc chắn muốn đăng xuất?');
-        if (confirmed) {
-            localStorage.removeItem('isAuthenticated');
-            localStorage.removeItem('userRole');
-            localStorage.removeItem('userEmail');
-            navigate('/');
-        }
+        setIsLogoutModalOpen(true);
+    };
+
+    const confirmLogout = () => {
+        localStorage.removeItem('isAuthenticated');
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('userEmail');
+        setIsLogoutModalOpen(false);
+        navigate('/');
     };
 
     // Store Manager menu: Day-to-day operations
@@ -105,6 +110,28 @@ const EmployeeLayout = () => {
                     <CurrentComponent />
                 </div>
             </main>
+
+            {/* Logout Confirmation Modal */}
+            <Modal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                title="Xác nhận đăng xuất"
+            >
+                <div className="space-y-4">
+                    <p>Bạn có chắc chắn muốn đăng xuất?</p>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => setIsLogoutModalOpen(false)}>
+                            Hủy
+                        </Button>
+                        <Button
+                            onClick={confirmLogout}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Đăng xuất
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };

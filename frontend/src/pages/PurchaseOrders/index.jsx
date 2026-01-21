@@ -60,7 +60,9 @@ const PurchaseOrders = () => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [selectedPO, setSelectedPO] = useState(null);
+    const [poToDelete, setPoToDelete] = useState(null);
     const [formErrors, setFormErrors] = useState({});
 
     // Form state for creating PO
@@ -390,10 +392,17 @@ const PurchaseOrders = () => {
     // Delete draft PO
     const handleDeletePO = async (po) => {
         if (po.status !== "draft") return;
-        if (!window.confirm(`Xóa đơn hàng ${po.code}?`)) return;
+        setPoToDelete(po);
+        setIsDeleteModalOpen(true);
+    };
+
+    const confirmDeletePO = async () => {
+        if (!poToDelete) return;
         try {
-            await deletePurchaseOrder(po.id);
+            await deletePurchaseOrder(poToDelete.id);
             await refreshOrders();
+            setIsDeleteModalOpen(false);
+            setPoToDelete(null);
         } catch (e) {
             console.error(e);
             alert("Xóa đơn thất bại.");
@@ -813,6 +822,37 @@ const PurchaseOrders = () => {
                         </div>
                     </form>
                 )}
+            </Modal>
+
+            {/* Delete Confirmation Modal */}
+            <Modal
+                isOpen={isDeleteModalOpen}
+                onClose={() => {
+                    setIsDeleteModalOpen(false);
+                    setPoToDelete(null);
+                }}
+                title="Xác nhận xóa"
+            >
+                <div className="space-y-4">
+                    <p>
+                        Bạn có chắc chắn muốn xóa đơn hàng{" "}
+                        <strong>{poToDelete?.code}</strong>?
+                    </p>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => {
+                            setIsDeleteModalOpen(false);
+                            setPoToDelete(null);
+                        }}>
+                            Hủy
+                        </Button>
+                        <Button
+                            onClick={confirmDeletePO}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Xóa
+                        </Button>
+                    </div>
+                </div>
             </Modal>
         </div>
     );

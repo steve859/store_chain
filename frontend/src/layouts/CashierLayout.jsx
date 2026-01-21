@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { FaThLarge, FaBox, FaSignOutAlt, FaExclamationCircle, FaCashRegister } from 'react-icons/fa';
 import { cn } from '../lib/utils';
+import Modal from '../components/ui/modal';
+import { Button } from '../components/ui/button';
 import Dashboard from '../pages/DashBoard';
 import Products from '../pages/Products';
 import Complaints from '../pages/Complaints';
@@ -11,6 +13,7 @@ import { ShiftProvider, ShiftStatusBar, useShift } from '../components/shift/Shi
 // Inner layout that uses shift context
 const CashierLayoutInner = () => {
     const [currentView, setCurrentView] = useState("pos"); // Cashiers start at POS
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const navigate = useNavigate();
     const { isShiftOpen, requestCloseModal } = useShift();
 
@@ -22,13 +25,15 @@ const CashierLayoutInner = () => {
             return;
         }
 
-        const confirmed = window.confirm('Bạn có chắc chắn muốn đăng xuất?');
-        if (confirmed) {
-            localStorage.removeItem('isAuthenticated');
-            localStorage.removeItem('userRole');
-            localStorage.removeItem('userEmail');
-            navigate('/');
-        }
+        setIsLogoutModalOpen(true);
+    };
+
+    const confirmLogout = () => {
+        localStorage.removeItem('isAuthenticated');
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('userEmail');
+        setIsLogoutModalOpen(false);
+        navigate('/');
     };
 
     // Cashier menu: Day-to-day checkout activities only
@@ -121,6 +126,27 @@ const CashierLayout = () => {
     return (
         <ShiftProvider>
             <CashierLayoutInner />
+            {/* Logout Confirmation Modal */}
+            <Modal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                title="Xác nhận đăng xuất"
+            >
+                <div className="space-y-4">
+                    <p>Bạn có chắc chắn muốn đăng xuất?</p>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={() => setIsLogoutModalOpen(false)}>
+                            Hủy
+                        </Button>
+                        <Button
+                            onClick={confirmLogout}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                        >
+                            Đăng xuất
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </ShiftProvider>
     );
 };

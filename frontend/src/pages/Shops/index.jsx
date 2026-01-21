@@ -19,7 +19,9 @@ export default function Shops() {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedShop, setSelectedShop] = useState(null);
+  const [shopToDelete, setShopToDelete] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -58,10 +60,17 @@ export default function Shops() {
   const filtered = useMemo(() => shops, [shops]);
 
   const handleDelete = async (storeId) => {
-    if (!confirm("Ngừng hoạt động cửa hàng này?")) return;
+    const shop = shops.find(s => s.id === storeId);
+    setShopToDelete(shop);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
     try {
-      await deactivateStore(storeId);
+      await deactivateStore(shopToDelete.id);
       await fetchStores(query);
+      setIsDeleteModalOpen(false);
+      setShopToDelete(null);
     } catch (e) {
       alert(e?.response?.data?.error || e?.message || "Không thể cập nhật trạng thái cửa hàng");
     }
@@ -466,6 +475,37 @@ export default function Shops() {
         className="max-w-4xl"
       >
         {renderForm(handleUpdateShop, "Cập nhật")}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setShopToDelete(null);
+        }}
+        title="Xác nhận ngừng hoạt động"
+      >
+        <div className="space-y-4">
+          <p>
+            Bạn có chắc chắn muốn ngừng hoạt động cửa hàng{" "}
+            <strong>{shopToDelete?.name}</strong>?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => {
+              setIsDeleteModalOpen(false);
+              setShopToDelete(null);
+            }}>
+              Hủy
+            </Button>
+            <Button
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Ngừng hoạt động
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
