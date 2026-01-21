@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Header } from "../../components/ui/header";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
@@ -6,13 +6,17 @@ import { Button } from "../../components/ui/button";
 import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 import { FaPlus, FaEdit, FaTrashAlt, FaTags, FaPercent, FaMoneyBillWave, FaGift, FaCalendarAlt, FaStore } from "react-icons/fa";
+import { listStores } from "../../services/stores";
+import {
+    apiPromotionToUi,
+    createPromotion,
+    deletePromotion,
+    listPromotions,
+    mapPromotionTypeToApi,
+    updatePromotion,
+} from "../../services/promotions";
 
-// Dummy stores
-const stores = [
-    { id: "SHP-001", name: "Cửa hàng Q1" },
-    { id: "SHP-002", name: "Cửa hàng Q7" },
-    { id: "SHP-003", name: "Cửa hàng Q3" },
-];
+const defaultStores = [];
 
 // Promotion types
 const promotionTypes = [
@@ -21,54 +25,7 @@ const promotionTypes = [
     { id: "combo", name: "Combo", icon: <FaGift /> },
 ];
 
-// Initial promotions
-const initialPromotions = [
-    {
-        id: 1,
-        code: "SALE10",
-        name: "Giảm 10% đơn hàng",
-        type: "percent",
-        value: 10,
-        minOrder: 50000,
-        maxDiscount: 100000,
-        startDate: "2026-01-01",
-        endDate: "2026-01-31",
-        scope: "all",
-        stores: [],
-        status: "active",
-        usageCount: 45,
-    },
-    {
-        id: 2,
-        code: "SAVE20K",
-        name: "Giảm 20.000đ",
-        type: "fixed",
-        value: 20000,
-        minOrder: 100000,
-        maxDiscount: null,
-        startDate: "2026-01-10",
-        endDate: "2026-01-20",
-        scope: "all",
-        stores: [],
-        status: "active",
-        usageCount: 23,
-    },
-    {
-        id: 3,
-        code: "COMBO2",
-        name: "Mua 2 giảm 15%",
-        type: "combo",
-        value: 15,
-        minOrder: 0,
-        maxDiscount: null,
-        startDate: "2026-01-05",
-        endDate: "2026-01-15",
-        scope: "stores",
-        stores: ["SHP-001", "SHP-002"],
-        status: "expired",
-        usageCount: 12,
-    },
-];
+const initialPromotions = [];
 
 const getTypeBadge = (type) => {
     switch (type) {
@@ -84,6 +41,10 @@ const getTypeBadge = (type) => {
 };
 
 const getStatusBadge = (promo) => {
+    if (promo.active === false) {
+        return <Badge className="bg-red-100 text-red-700">Ngưng áp dụng</Badge>;
+    }
+
     const now = new Date();
     const startDate = new Date(promo.startDate);
     const endDate = new Date(promo.endDate);
@@ -99,6 +60,8 @@ const getStatusBadge = (promo) => {
 
 const Promotions = () => {
     const [promotions, setPromotions] = useState(initialPromotions);
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
     const [filterType, setFilterType] = useState("");
 
@@ -108,6 +71,54 @@ const Promotions = () => {
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [selectedPromotion, setSelectedPromotion] = useState(null);
     const [formErrors, setFormErrors] = useState({});
+
+    const [stores, setStores] = useState(defaultStores);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const load = async () => {
+            try {
+                setIsLoading(true);
+                setLoadError("");
+                const apiPromos = await listPromotions();
+                if (!isMounted) return;
+                setPromotions((apiPromos || []).map(apiPromotionToUi));
+            } catch (err) {
+                if (!isMounted) return;
+                setLoadError(err?.response?.data?.error || err?.message || "Không tải được danh sách khuyến mãi");
+            } finally {
+                if (!isMounted) return;
+                setIsLoading(false);
+            }
+        };
+
+        load();
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadStores = async () => {
+            try {
+                const data = await listStores({ q: "", take: 200, skip: 0, includeStats: false });
+                if (!isMounted) return;
+                const items = (data?.items || []).map((s) => ({ id: s.code, name: s.name }));
+                setStores(items);
+            } catch {
+                if (!isMounted) return;
+                setStores([]);
+            }
+        };
+
+        loadStores();
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
     // Form state
     const [formData, setFormData] = useState({
@@ -177,7 +188,7 @@ const Promotions = () => {
     };
 
     // Handle add promotion
-    const handleAddPromotion = (e) => {
+    const handleAddPromotion = async (e) => {
         e.preventDefault();
         const errors = validateForm();
         if (Object.keys(errors).length > 0) {
@@ -185,19 +196,36 @@ const Promotions = () => {
             return;
         }
 
-        const newPromotion = {
-            id: Math.max(...promotions.map((p) => p.id)) + 1,
-            ...formData,
-            value: parseFloat(formData.value),
-            minOrder: parseFloat(formData.minOrder) || 0,
-            maxDiscount: formData.maxDiscount ? parseFloat(formData.maxDiscount) : null,
-            status: "active",
-            usageCount: 0,
-        };
+        try {
+            const payload = {
+                code: formData.code.trim(),
+                name: formData.name.trim(),
+                type: mapPromotionTypeToApi(formData.type),
+                value: parseFloat(formData.value),
+                minOrder: parseFloat(formData.minOrder) || 0,
+                maxDiscount: formData.maxDiscount ? parseFloat(formData.maxDiscount) : null,
+                scope: formData.scope,
+                stores: formData.stores,
+                startDate: formData.startDate,
+                endDate: formData.endDate,
+            };
 
-        setPromotions([newPromotion, ...promotions]);
-        setIsAddModalOpen(false);
-        resetForm();
+            const created = await createPromotion(payload);
+            const uiCreated = apiPromotionToUi(created);
+            uiCreated.minOrder = parseFloat(formData.minOrder) || 0;
+            uiCreated.maxDiscount = formData.maxDiscount ? parseFloat(formData.maxDiscount) : null;
+            uiCreated.scope = formData.scope;
+            uiCreated.stores = formData.stores;
+
+            setPromotions([uiCreated, ...promotions]);
+            setIsAddModalOpen(false);
+            resetForm();
+        } catch (err) {
+            setFormErrors({
+                ...formErrors,
+                code: err?.response?.data?.error || err?.message || "Không tạo được khuyến mãi",
+            });
+        }
     };
 
     // Open edit modal
@@ -220,7 +248,7 @@ const Promotions = () => {
     };
 
     // Handle update promotion
-    const handleUpdatePromotion = (e) => {
+    const handleUpdatePromotion = async (e) => {
         e.preventDefault();
         const errors = validateForm(true);
         if (Object.keys(errors).length > 0) {
@@ -228,22 +256,37 @@ const Promotions = () => {
             return;
         }
 
-        setPromotions(
-            promotions.map((p) =>
-                p.id === selectedPromotion.id
-                    ? {
-                        ...p,
-                        ...formData,
-                        value: parseFloat(formData.value),
-                        minOrder: parseFloat(formData.minOrder) || 0,
-                        maxDiscount: formData.maxDiscount ? parseFloat(formData.maxDiscount) : null,
-                    }
-                    : p
-            )
-        );
-        setIsEditModalOpen(false);
-        setSelectedPromotion(null);
-        resetForm();
+        try {
+            const payload = {
+                code: formData.code.trim(),
+                name: formData.name.trim(),
+                type: mapPromotionTypeToApi(formData.type),
+                value: parseFloat(formData.value),
+                minOrder: parseFloat(formData.minOrder) || 0,
+                maxDiscount: formData.maxDiscount ? parseFloat(formData.maxDiscount) : null,
+                scope: formData.scope,
+                stores: formData.stores,
+                startDate: formData.startDate,
+                endDate: formData.endDate,
+            };
+
+            const updated = await updatePromotion(selectedPromotion.id, payload);
+            const uiUpdated = apiPromotionToUi(updated);
+            uiUpdated.minOrder = parseFloat(formData.minOrder) || 0;
+            uiUpdated.maxDiscount = formData.maxDiscount ? parseFloat(formData.maxDiscount) : null;
+            uiUpdated.scope = formData.scope;
+            uiUpdated.stores = formData.stores;
+
+            setPromotions(promotions.map((p) => (p.id === selectedPromotion.id ? uiUpdated : p)));
+            setIsEditModalOpen(false);
+            setSelectedPromotion(null);
+            resetForm();
+        } catch (err) {
+            setFormErrors({
+                ...formErrors,
+                code: err?.response?.data?.error || err?.message || "Không cập nhật được khuyến mãi",
+            });
+        }
     };
 
     // Handle delete
@@ -252,10 +295,15 @@ const Promotions = () => {
         setIsDeleteModalOpen(true);
     };
 
-    const handleDeletePromotion = () => {
-        setPromotions(promotions.filter((p) => p.id !== selectedPromotion.id));
-        setIsDeleteModalOpen(false);
-        setSelectedPromotion(null);
+    const handleDeletePromotion = async () => {
+        try {
+            await deletePromotion(selectedPromotion.id);
+            setPromotions(promotions.filter((p) => p.id !== selectedPromotion.id));
+            setIsDeleteModalOpen(false);
+            setSelectedPromotion(null);
+        } catch (err) {
+            alert(err?.response?.data?.error || err?.message || "Không xóa được khuyến mãi");
+        }
     };
 
     // Toggle store selection
@@ -502,6 +550,12 @@ const Promotions = () => {
             {/* Promotions Table */}
             <Card>
                 <CardContent className="p-0">
+                    {loadError && (
+                        <div className="p-4 text-sm text-red-600 border-b bg-red-50">{loadError}</div>
+                    )}
+                    {isLoading && (
+                        <div className="p-4 text-sm text-gray-600 border-b">Đang tải khuyến mãi...</div>
+                    )}
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b">

@@ -1,86 +1,14 @@
-import React, { useRef, useEffect, useState } from "react";
-import {Header} from "../../components/ui/header";
+import React, { useEffect, useMemo, useState } from "react";
+import { Header } from "../../components/ui/header";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import {SearchBar} from "../../components/ui/searchbar";
+import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 
 import { FaEdit, FaTrashAlt } from "react-icons/fa";
-const orders = [
-  {
-    id: "ORD-001",
-    customer: "Nguyễn Văn A",
-    store: "Cửa hàng Q1",
-    items: 3,
-    total: "2,450,000đ",
-    status: "completed",
-    date: "2024-01-15",
-  },
-  {
-    id: "ORD-002",
-    customer: "Trần Thị B",
-    store: "Cửa hàng Q2",
-    items: 2,
-    total: "1,890,000đ",
-    status: "pending",
-    date: "2024-01-15",
-  },
-  {
-    id: "ORD-003",
-    customer: "Lê Văn C",
-    store: "Cửa hàng Q3",
-    items: 5,
-    total: "3,250,000đ",
-    status: "completed",
-    date: "2024-01-14",
-  },
-  {
-    id: "ORD-004",
-    customer: "Phạm Thị D",
-    store: "Cửa hàng Q1",
-    items: 1,
-    total: "980,000đ",
-    status: "processing",
-    date: "2024-01-14",
-  },
-  {
-    id: "ORD-005",
-    customer: "Hoàng Văn E",
-    store: "Cửa hàng Q2",
-    items: 4,
-    total: "2,150,000đ",
-    status: "completed",
-    date: "2024-01-13",
-  },
-  {
-    id: "ORD-006",
-    customer: "Vũ Thị F",
-    store: "Cửa hàng Q3",
-    items: 2,
-    total: "1,600,000đ",
-    status: "cancelled",
-    date: "2024-01-13",
-  },
-  {
-    id: "ORD-007",
-    customer: "Đặng Văn G",
-    store: "Cửa hàng Q1",
-    items: 3,
-    total: "2,800,000đ",
-    status: "processing",
-    date: "2024-01-12",
-  },
-  {
-    id: "ORD-008",
-    customer: "Bùi Thị H",
-    store: "Cửa hàng Q2",
-    items: 1,
-    total: "750,000đ",
-    status: "completed",
-    date: "2024-01-12",
-  },
-];
+
+import { getSalesOrder, listSalesOrders } from "../../services/salesOrders";
 
 const getStatusBadge = (status) => {
   switch (status) {
@@ -96,7 +24,7 @@ const getStatusBadge = (status) => {
       return (
         <div>
             <Badge className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 border border-yellow-200">
-                Đang chờ xử lý
+                Chờ thanh toán
             </Badge>
         </div>
       );
@@ -120,79 +48,170 @@ const getStatusBadge = (status) => {
 };
 
 export default function Orders() { 
-    // 2. Tạo State để quản lý Modal
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const take = 20;
 
-    // State lưu dữ liệu form (để gửi lên server sau này)
-    const [formData, setFormData] = useState({
-      id: "",
-      customer: "",
-      store: "",
-      items: Number,
-      total: "",
-      status: "",
-      date: "",
-    });
-    const handleSave = (e) => {
-        e.preventDefault();
-        console.log("Lưu sản phẩm:", formData);
-        // Gọi API save tại đây...
-        
-        setIsModalOpen(false); // Đóng modal sau khi lưu
-        alert("Đã thêm sản phẩm thành công!");
+    const [q, setQ] = useState("");
+    const [skip, setSkip] = useState(0);
+
+    const [items, setItems] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedId, setSelectedId] = useState(null);
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [selectedItems, setSelectedItems] = useState([]);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [detailsError, setDetailsError] = useState(null);
+
+    const canPrev = skip > 0;
+    const canNext = skip + take < total;
+
+    const effectiveQuery = useMemo(() => q.trim(), [q]);
+
+    const formatCurrency = (amount) => {
+        if (amount === null || amount === undefined || amount === "") return "0đ";
+        const numeric = typeof amount === "number" ? amount : Number.parseFloat(String(amount));
+        if (Number.isNaN(numeric)) return "0đ";
+        return new Intl.NumberFormat("vi-VN").format(numeric) + "đ";
     };
+
+    const formatDateTime = (isoString) => {
+        if (!isoString) return "";
+        const date = new Date(isoString);
+        if (Number.isNaN(date.getTime())) return String(isoString);
+        return date.toLocaleString("vi-VN", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
+
+    const load = async ({ nextSkip = skip, nextQ = effectiveQuery } = {}) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await listSalesOrders({ q: nextQ, take, skip: nextSkip });
+            setItems(data?.items ?? []);
+            setTotal(data?.total ?? 0);
+        } catch (e) {
+            setError(e?.response?.data?.error || e?.message || "Không thể tải đơn hàng");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openDetails = async (id) => {
+        setSelectedId(id);
+        setIsModalOpen(true);
+        setSelectedOrder(null);
+        setSelectedItems([]);
+        setDetailsError(null);
+        setDetailsLoading(true);
+        try {
+            const data = await getSalesOrder(id);
+            setSelectedOrder(data?.order ?? null);
+            setSelectedItems(data?.items ?? []);
+        } catch (e) {
+            setDetailsError(e?.response?.data?.error || e?.message || "Không thể tải chi tiết đơn hàng");
+        } finally {
+            setDetailsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            load({ nextSkip: skip, nextQ: effectiveQuery });
+        }, 250);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveQuery, skip]);
+
     return(
         <div className="space-y-8">
             <header className="flex justify-between h-16 ">
                 <div>
-                    <Header>Orders</Header>
-                    <span className="text-sm text-slate-600 italic">Danh sách các đơn hàng</span>
+                    <Header>Đơn hàng</Header>
+                    <span className="text-sm text-slate-600 italic">Danh sách đơn hàng bán (POS)</span>
                 </div>
-                <Button onClick={() => setIsModalOpen(true)}>
-                  + Thêm đơn hàng mới
+                <Button variant="outline" onClick={() => load({ nextSkip: skip, nextQ: effectiveQuery })} disabled={loading}>
+                  {loading ? "Đang tải..." : "Làm mới"}
                 </Button>
             </header>
-            <SearchBar placeholder="Tìm kiếm đơn hàng"></SearchBar>
+
+            <div className="flex items-center gap-3">
+                <SearchBar
+                    placeholder="Tìm kiếm (mã đơn, cửa hàng, nhân viên, phương thức)"
+                    value={q}
+                    onChange={(e) => {
+                        setQ(e.target.value);
+                        setSkip(0);
+                    }}
+                />
+                <div className="ml-auto flex items-center gap-2">
+                    <Button variant="outline" onClick={() => setSkip((s) => Math.max(0, s - take))} disabled={!canPrev || loading}>
+                        Trước
+                    </Button>
+                    <Button variant="outline" onClick={() => setSkip((s) => s + take)} disabled={!canNext || loading}>
+                        Sau
+                    </Button>
+                </div>
+            </div>
+
+            {error ? (
+                <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            ) : null}
+
             <Card>
                 <CardContent className="p-0">
                     <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm overflow-x-auto">
                         <table className="min-w-full border border-slate-600">
                             <thead className="bg-gray-200">
                                 <tr className="border-b h-3">
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">ID</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Tên Khách Hàng</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Cửa Hàng</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Số Lượng</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Tổng Tiền</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Ngày Đặt</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Mã</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Nhân viên</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Cửa hàng</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Số lượng</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Tổng tiền</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Thanh toán</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Thời gian</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Trạng thái</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-card-content uppercase tracking-wider">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
-                                {orders.map((order) => (
+                                {!loading && items.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">
+                                            Chưa có đơn hàng nào
+                                        </td>
+                                    </tr>
+                                ) : null}
+
+                                {items.map((order) => (
                                     <tr key={order.id} className="hover:bg-card-content/30 transition-colors">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className="font-bold">{order.id}</span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap font-medium">{order.customer}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{order.store}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.items} sản phẩm</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-500 font-medium">{order.total}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.date}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap font-medium">{order.cashier_name || "-"}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                                            {order.store_name ? `${order.store_name}${order.store_code ? ` (${order.store_code})` : ""}` : (order.store_code || "-")}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.items_count} sản phẩm</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-500 font-medium">{formatCurrency(order.total_amount)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.payment_method || "-"}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDateTime(order.created_at)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">{getStatusBadge(order.status)}</td>
                                         <td>
                                             <div>
-                                                <Button 
-                                                  variant="ghost"
-                                                >
-                                                    <FaEdit size={10}/>    
-                                                </Button> 
-                                                <Button 
-                                                  variant="ghost"
-                                                  onDelete={() => onDeleteOrder(order.id, order.customer)}
-                                                >
-                                                    <FaTrashAlt size={10}/>    
+                                                <Button variant="ghost" onClick={() => openDetails(order.id)} title="Xem chi tiết">
+                                                    <FaEdit size={10} />
+                                                </Button>
+                                                <Button variant="ghost" disabled title="Không hỗ trợ xóa đơn hàng">
+                                                    <FaTrashAlt size={10} />
                                                 </Button>
                                             </div>
                                         </td>
@@ -201,136 +220,110 @@ export default function Orders() {
                             </tbody>
                         </table>
                     </div>
+                    <div className="flex items-center justify-between px-6 py-4 text-sm text-slate-600">
+                        <span>
+                            Hiển thị {Math.min(skip + 1, total)} - {Math.min(skip + take, total)} / {total}
+                        </span>
+                        <span>Mỗi trang: {take}</span>
+                    </div>
                 </CardContent>
             </Card>
+
             <Modal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                title="Thêm sản phẩm mới"
+                onClose={() => {
+                    setIsModalOpen(false);
+                    setSelectedId(null);
+                }}
+                title={selectedId ? `Chi tiết đơn hàng #${selectedId}` : "Chi tiết đơn hàng"}
+                className="max-w-3xl"
             >
-                <form onSubmit={handleSave} className="space-y-4">
-                    <div className="flex flex-col space-y-2">
-                        <label className="text-sm font-medium">Mã đơn hàng</label>
-                        <input 
-                            placeholder="Ví dụ: ORD-001" 
-                            onChange={(e) => setFormData({...formData, name: e.target.value})}
-                            className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                    </div>
-                    <div className="flex flex-col space-y-2">
-                        <label className="text-sm font-medium">Tên khách hàng</label>
-                        <input 
-                            placeholder="Ví dụ: Nguyễn Văn A" 
-                            onChange={(e) => setFormData({...formData, name: e.target.value})}
-                            className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                    </div>
+                {detailsError ? (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{detailsError}</div>
+                ) : null}
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Cửa hàng</label>
-                        <select className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                            <option>Cửa hàng Q1</option>
-                            <option>Cửa hàng Q2</option>
-                            <option>Cửa hàng Q3</option>
-                        </select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Giá bán</label>
-                            <input
-                                type="number" 
-                                placeholder="0" 
-                                onChange={(e) => setFormData({...formData, price: e.target.value})}
-                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Số lượng </label>
-                            <input
-                                type="number"
-                                placeholder="0"
-                                onChange={(e) => setFormData({...formData,stock: e.target.value})}
-                                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            />
-                        </div>
-                    </div>
+                {detailsLoading ? (
+                    <div className="text-sm text-slate-600">Đang tải chi tiết...</div>
+                ) : null}
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Trạng thái</label>
-                        <div className="flex items-center gap-6 mt-2">
-                            {/* Lựa chọn 1: Hoàn thành */}
-                          <div className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                  type="radio"
-                                  id="status-completed"
-                                  name="status"
-                                  value="completed"
-                                  checked={formData.status === "completed"}
-                                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              />
-                              <label htmlFor="status-completed" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                  Hoàn thành
-                              </label>
-                          </div>
-                          {/* Lựa chọn 2: Đang chờ xử lý*/}
-                          <div className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                  type="radio"
-                                  id="status-pending"
-                                  name="status"
-                                  value="pending"
-                                  checked={formData.status === "pending"}
-                                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                  className="h-4 w-4 border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
-                              />
-                              <label htmlFor="status-pending" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                  Đang chờ xử lý
-                              </label>
-                          </div>
-                          {/* Lựa chọn 3: Đang xử lý */}
-                          <div className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                  type="radio"
-                                  id="status-processing"
-                                  name="status"
-                                  value="processing"
-                                  checked={formData.status === "processing"}
-                                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              />
-                              <label htmlFor="status-processing" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                  Đang xử lý
-                              </label>
-                          </div>
-                          {/* Lựa chọn 4: Đã hủy*/}
-                          <div className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                  type="radio"
-                                  id="status-cancelled"
-                                  name="status"
-                                  value="cancelled"
-                                  checked={formData.status === "cancelled"}
-                                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                  className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              />
-                              <label htmlFor="status-cancelled" className="text-sm font-medium text-gray-700 cursor-pointer">
-                                  Đã hủy
-                              </label>
-                          </div>
+                {!detailsLoading && selectedOrder ? (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <div className="text-slate-500">Cửa hàng</div>
+                                <div className="font-medium">
+                                    {selectedOrder.store_name ? `${selectedOrder.store_name}${selectedOrder.store_code ? ` (${selectedOrder.store_code})` : ""}` : (selectedOrder.store_code || "-")}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500">Nhân viên</div>
+                                <div className="font-medium">{selectedOrder.cashier_name || "-"}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500">Thời gian</div>
+                                <div className="font-medium">{formatDateTime(selectedOrder.created_at)}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500">Trạng thái</div>
+                                <div className="font-medium">{getStatusBadge(selectedOrder.status)}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500">Phương thức</div>
+                                <div className="font-medium">{selectedOrder.payment_method || "-"}</div>
+                            </div>
+                            <div>
+                                <div className="text-slate-500">Số tiền</div>
+                                <div className="font-medium">
+                                    Tổng: {formatCurrency(selectedOrder.total_amount)}
+                                    {selectedOrder.paid_amount ? ` | Đã trả: ${formatCurrency(selectedOrder.paid_amount)}` : ""}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="border rounded-lg overflow-hidden">
+                            <table className="min-w-full">
+                                <thead className="bg-gray-100">
+                                    <tr>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-700 uppercase">Sản phẩm</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-700 uppercase">SKU</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-700 uppercase">Đơn vị</th>
+                                        <th className="px-4 py-2 text-right text-xs font-medium text-slate-700 uppercase">SL</th>
+                                        <th className="px-4 py-2 text-right text-xs font-medium text-slate-700 uppercase">Giá</th>
+                                        <th className="px-4 py-2 text-right text-xs font-medium text-slate-700 uppercase">Thành tiền</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {selectedItems.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                                                Không có sản phẩm
+                                            </td>
+                                        </tr>
+                                    ) : null}
+
+                                    {selectedItems.map((it) => {
+                                        const lineTotal = Number(it.quantity) * Number.parseFloat(String(it.price));
+                                        return (
+                                            <tr key={it.id} className="hover:bg-gray-50">
+                                                <td className="px-4 py-2 text-sm font-medium">{it.product_name}</td>
+                                                <td className="px-4 py-2 text-sm text-slate-600">{it.sku_code}</td>
+                                                <td className="px-4 py-2 text-sm text-slate-600">{it.unit}</td>
+                                                <td className="px-4 py-2 text-sm text-right">{it.quantity}</td>
+                                                <td className="px-4 py-2 text-sm text-right">{formatCurrency(it.price)}</td>
+                                                <td className="px-4 py-2 text-sm text-right font-medium">{formatCurrency(lineTotal)}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="pt-2 flex justify-end">
+                            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Đóng</Button>
                         </div>
                     </div>
-
-                    <div className="pt-4 flex justify-end gap-2">
-                        <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>
-                            Hủy bỏ
-                        </Button>
-                        <Button type="submit">
-                            Lưu sản phẩm
-                        </Button>
-                    </div>
-                </form>
-            </Modal>  
-        </div> 
-    );        
+                ) : null}
+            </Modal>
+        </div>
+    );
 }
