@@ -13,5 +13,8 @@
 # Logs
 **/*.log
 
+# DB dump artifacts
+*.dump
+
 # Local pgAdmin data (docker volume)
 pgadmin-data/
