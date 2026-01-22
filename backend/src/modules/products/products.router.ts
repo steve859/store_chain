@@ -4,6 +4,8 @@ import { Prisma } from '../../generated/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
+import { cacheCatalogResponse } from '../../middlewares/catalogCache.middleware';
+import { invalidateCatalogCache } from '../../lib/cache/catalog';
 
 const router = Router();
 
@@ -73,7 +75,7 @@ router.get('/', async (req, res, next) => {
  * UC-M1: Store catalog view (variants + product + store inventory)
  * GET /api/v1/products/catalog?q=milk&barcode=...&take=50&skip=0
  */
-router.get('/catalog', requireActiveStore, async (req, res, next) => {
+router.get('/catalog', requireActiveStore, cacheCatalogResponse(), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const q = String(req.query.q ?? '').trim();
@@ -236,6 +238,7 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'man
       });
     });
 
+    await invalidateCatalogCache(storeId);
     return res.status(201).json({ price: created });
   } catch (err) {
     next(err);
@@ -285,6 +288,7 @@ router.post('/variant-prices/close', requireActiveStore, authorizeRoles(['admin'
       return updated;
     });
 
+    await invalidateCatalogCache(storeId);
     return res.json({ price: closed });
   } catch (err) {
     next(err);
