@@ -6,10 +6,20 @@ import { Button } from "../../components/ui/button";
 import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 import { FaEdit, FaTrashAlt, FaPlus, FaFilter, FaTh, FaList, FaBarcode } from "react-icons/fa";
-import softDrinkIcon from "../../assets/soft-drink.png";
-import chickenDrumIcon from "../../assets/food.png";
-import toolsIcon from "../../assets/tools-icon.png";
-import confectioneryIcon from "../../assets/confectionery.png";
+import paperIcon from "../../assets/categories/paper.png";
+import dairyIcon from "../../assets/categories/dairy.png";
+import softDrinkIcon from "../../assets/categories/soft-drink.png";
+import cleanIcon from "../../assets/categories/clean.png";
+import fastfoodIcon from "../../assets/categories/fastfood.png";
+import confectioneryIcon from "../../assets/categories/confectionery.png";
+import creamIcon from "../../assets/categories/cream.png";
+import washingIcon from "../../assets/categories/washing.png";
+import furnitureIcon from "../../assets/categories/furniture.png";
+import coffeeIcon from "../../assets/categories/coffee.png";
+import waterBottleIcon from "../../assets/categories/water-bottle.png";
+import faceIcon from "../../assets/categories/face.png";
+import foodIcon from "../../assets/categories/food.png";
+import boxIcon from "../../assets/categories/box.png";
 import {
     createProduct,
     createVariant,
@@ -46,10 +56,21 @@ const getDefaultStoreId = () => {
 
 const getCategoryIcon = (category) => {
     const iconMap = {
+        "Giấy & khăn": paperIcon,
+        "Sữa & chế phẩm": dairyIcon,
+        "Nước ngọt": softDrinkIcon,
+        "Tẩy rửa": cleanIcon,
+        "Đồ ăn nhanh": fastfoodIcon,
+        "Bánh kẹo & snack": confectioneryIcon,
+        "Chăm sóc cá nhân": creamIcon,
+        "Dầu gội": washingIcon,
+        "Hàng gia dụng": furnitureIcon,
+        "Cà phê & trà": coffeeIcon,
+        "Nước uống đóng chai": waterBottleIcon,
+        "Chăm sóc da": faceIcon,
+        "Thực phẩm": foodIcon,
         "Đồ uống": softDrinkIcon,
-        "Thực phẩm": chickenDrumIcon,
-        "Vật dụng": toolsIcon,
-        "Bánh kẹo": confectioneryIcon,
+        "Vật dụng": boxIcon,
     };
     return iconMap[category] || softDrinkIcon;
 };
