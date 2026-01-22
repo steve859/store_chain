@@ -2,6 +2,7 @@ import React, { useState, useEffect, createContext, useContext } from "react";
 import Modal from "../ui/modal";
 import { Button } from "../ui/button";
 import { FaCashRegister, FaSignOutAlt, FaExclamationTriangle } from "react-icons/fa";
+import { closeShift as apiCloseShift, getCurrentShift, openShift as apiOpenShift } from "../../services/posShift";
 
 // Shift Context for global state
 const ShiftContext = createContext(null);
@@ -23,59 +24,111 @@ export const ShiftProvider = ({ children }) => {
 
     // Check if there's an active shift on mount
     useEffect(() => {
-        const savedShift = localStorage.getItem("activeShift");
-        if (savedShift) {
-            const shift = JSON.parse(savedShift);
-            setShiftData(shift);
-            setIsShiftOpen(true);
-        }
+        let cancelled = false;
+
+        const run = async () => {
+            try {
+                const res = await getCurrentShift();
+                if (cancelled) return;
+                const shift = res?.shift;
+                if (!shift) {
+                    setShiftData(null);
+                    setIsShiftOpen(false);
+                    return;
+                }
+
+                const summary = shift.summary || {};
+
+                setShiftData({
+                    id: shift.id,
+                    cashier: shift.openedBy,
+                    startTime: shift.openedAt,
+                    startingCash: Number(shift.openingCash ?? 0),
+                    totalSales: Number(summary.totalSales ?? 0),
+                    transactionsCount: Number(summary.transactionsCount ?? 0),
+                    cashSales: Number(summary.cashSales ?? 0),
+                    cashIn: Number(summary.cashIn ?? 0),
+                    cashOut: Number(summary.cashOut ?? 0),
+                    expectedCash: Number(summary.expectedCash ?? (Number(shift.openingCash ?? 0) + Number(summary.cashSales ?? 0))),
+                    note: shift.note || "",
+                });
+                setIsShiftOpen(true);
+            } catch {
+                // non-blocking: keep shift closed if API fails
+                if (cancelled) return;
+                setShiftData(null);
+                setIsShiftOpen(false);
+            }
+        };
+
+        run();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
-    const openShift = (startingCash) => {
-        const shift = {
-            id: Date.now(),
-            cashier: localStorage.getItem("userEmail") || "Cashier",
-            startTime: new Date().toISOString(),
-            startingCash: parseFloat(startingCash),
-            transactions: [],
-            totalSales: 0,
-        };
-        setShiftData(shift);
+    const refreshShift = async () => {
+        const res = await getCurrentShift();
+        const shift = res?.shift;
+        if (!shift) {
+            setShiftData(null);
+            setIsShiftOpen(false);
+            return;
+        }
+
+        const summary = shift.summary || {};
+        setShiftData({
+            id: shift.id,
+            cashier: shift.openedBy,
+            startTime: shift.openedAt,
+            startingCash: Number(shift.openingCash ?? 0),
+            totalSales: Number(summary.totalSales ?? 0),
+            transactionsCount: Number(summary.transactionsCount ?? 0),
+            cashSales: Number(summary.cashSales ?? 0),
+            cashIn: Number(summary.cashIn ?? 0),
+            cashOut: Number(summary.cashOut ?? 0),
+            expectedCash: Number(summary.expectedCash ?? (Number(shift.openingCash ?? 0) + Number(summary.cashSales ?? 0))),
+            note: shift.note || "",
+        });
         setIsShiftOpen(true);
-        localStorage.setItem("activeShift", JSON.stringify(shift));
     };
 
-    const closeShift = (actualCash, note) => {
-        const closedShift = {
-            ...shiftData,
-            endTime: new Date().toISOString(),
-            actualCash: parseFloat(actualCash),
-            expectedCash: shiftData.startingCash + shiftData.totalSales,
-            difference: parseFloat(actualCash) - (shiftData.startingCash + shiftData.totalSales),
-            note: note,
-        };
+    const openShift = async (startingCash) => {
+        const openingCash = parseFloat(startingCash);
+        const res = await apiOpenShift({ openingCash });
+        const shift = res?.shift;
+        if (!shift) {
+            await refreshShift();
+            return;
+        }
 
-        // Save to shift history
-        const history = JSON.parse(localStorage.getItem("shiftHistory") || "[]");
-        history.push(closedShift);
-        localStorage.setItem("shiftHistory", JSON.stringify(history));
+        const summary = shift.summary || {};
+        setShiftData({
+            id: shift.id,
+            cashier: shift.openedBy,
+            startTime: shift.openedAt,
+            startingCash: Number(shift.openingCash ?? openingCash ?? 0),
+            totalSales: Number(summary.totalSales ?? 0),
+            transactionsCount: Number(summary.transactionsCount ?? 0),
+            cashSales: Number(summary.cashSales ?? 0),
+            cashIn: Number(summary.cashIn ?? 0),
+            cashOut: Number(summary.cashOut ?? 0),
+            expectedCash: Number(summary.expectedCash ?? (Number(shift.openingCash ?? openingCash ?? 0) + Number(summary.cashSales ?? 0))),
+            note: shift.note || "",
+        });
+        setIsShiftOpen(true);
+    };
 
-        // Clear active shift
-        localStorage.removeItem("activeShift");
+    const closeShift = async (actualCash, note) => {
+        const closingCash = parseFloat(actualCash);
+        await apiCloseShift({ closingCash, note });
         setShiftData(null);
         setIsShiftOpen(false);
     };
 
-    const addTransaction = (amount) => {
-        if (shiftData) {
-            const updated = {
-                ...shiftData,
-                totalSales: shiftData.totalSales + amount,
-                transactions: [...shiftData.transactions, { amount, time: new Date().toISOString() }],
-            };
-            setShiftData(updated);
-            localStorage.setItem("activeShift", JSON.stringify(updated));
-        }
+    const addTransaction = async () => {
+        // Backend is the source of truth; refresh after checkout.
+        await refreshShift();
     };
 
     const requestOpenModal = () => setShowOpenModal(true);
@@ -89,6 +142,7 @@ export const ShiftProvider = ({ children }) => {
                 openShift,
                 closeShift,
                 addTransaction,
+                refreshShift,
                 requestOpenModal,
                 requestCloseModal,
             }}
@@ -174,7 +228,11 @@ const CloseShiftModal = ({ isOpen, onClose, onCloseShift, shiftData }) => {
     const [note, setNote] = useState("");
     const [error, setError] = useState("");
 
-    const expectedCash = shiftData ? shiftData.startingCash + shiftData.totalSales : 0;
+    const expectedCash = shiftData
+        ? Number.isFinite(Number(shiftData.expectedCash))
+            ? Number(shiftData.expectedCash)
+            : (Number(shiftData.startingCash) + Number(shiftData.totalSales))
+        : 0;
     const difference = actualCash ? parseFloat(actualCash) - expectedCash : 0;
 
     const handleSubmit = (e) => {
@@ -230,7 +288,7 @@ const CloseShiftModal = ({ isOpen, onClose, onCloseShift, shiftData }) => {
                         <p className="text-gray-600">Doanh thu:</p>
                         <p className="font-medium text-green-600">{formatCurrency(shiftData.totalSales)}</p>
                         <p className="text-gray-600">Số giao dịch:</p>
-                        <p className="font-medium">{shiftData.transactions.length}</p>
+                        <p className="font-medium">{shiftData.transactionsCount ?? 0}</p>
                     </div>
                     <div className="border-t pt-2 mt-2">
                         <div className="flex justify-between items-center">

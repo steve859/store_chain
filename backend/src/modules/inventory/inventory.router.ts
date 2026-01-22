@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { Prisma } from '../../generated/prisma';
 import prisma from '../../db/prisma';
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
+
+router.use(authenticateToken);
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -16,10 +20,13 @@ const toDecimal = (value: unknown): Prisma.Decimal => {
 };
 
 // Adjustment history (stock_movements of type 'adjustment')
-// GET /api/v1/inventory/adjustments?storeId=1&q=milk&take=50&skip=0
-router.get('/adjustments', async (req, res, next) => {
+// GET /api/v1/inventory/adjustments?q=milk&take=50&skip=0
+router.get('/adjustments', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
-    const storeId = req.query.storeId ? Number(req.query.storeId) : undefined;
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const storeId = isAdmin && req.query.storeId ? Number(req.query.storeId) : activeStoreId;
     const q = String(req.query.q ?? '').trim();
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
@@ -101,9 +108,12 @@ router.get('/adjustments', async (req, res, next) => {
 });
 
 // Basic inventory list (by store)
-router.get('/', async (req, res, next) => {
+router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
-    const storeId = req.query.storeId ? Number(req.query.storeId) : undefined;
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const storeId = isAdmin && req.query.storeId ? Number(req.query.storeId) : activeStoreId;
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
 
@@ -125,13 +135,44 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Lookup inventory for a store + variant
-router.get('/stores/:storeId/variants/:variantId', async (req, res, next) => {
+// Lookup inventory for active store + variant
+router.get('/variants/:variantId', requireActiveStore, async (req, res, next) => {
+  try {
+    const storeId = Number(req.activeStoreId);
+    const variantId = Number(req.params.variantId);
+    if (!Number.isFinite(storeId) || !Number.isFinite(variantId)) {
+      return res.status(400).json({ error: 'Invalid variantId' });
+    }
+
+    const inventory = await prisma.inventories.findFirst({
+      where: { store_id: storeId, variant_id: variantId },
+      include: { product_variants: { include: { products: true } }, stores: true },
+    });
+
+    if (!inventory) {
+      return res.status(404).json({ error: 'Inventory not found' });
+    }
+
+    return res.json({ inventory });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Lookup inventory for a store + variant (legacy route)
+router.get('/stores/:storeId/variants/:variantId', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
     const storeId = Number(req.params.storeId);
     const variantId = Number(req.params.variantId);
     if (!Number.isFinite(storeId) || !Number.isFinite(variantId)) {
       return res.status(400).json({ error: 'Invalid storeId/variantId' });
+    }
+
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    if (!isAdmin && Number.isFinite(activeStoreId) && storeId !== activeStoreId) {
+      return res.status(403).json({ error: 'Forbidden: store does not match active store' });
     }
 
     const inventory = await prisma.inventories.findFirst({
@@ -150,12 +191,47 @@ router.get('/stores/:storeId/variants/:variantId', async (req, res, next) => {
 });
 
 // Lookup by barcode (common cashier/manager workflow)
-router.get('/stores/:storeId/lookup', async (req, res, next) => {
+router.get('/lookup', requireActiveStore, async (req, res, next) => {
+  try {
+    const storeId = Number(req.activeStoreId);
+    const barcode = String(req.query.barcode ?? '').trim();
+    if (!Number.isFinite(storeId) || !barcode) {
+      return res.status(400).json({ error: 'Invalid barcode' });
+    }
+
+    const variant = await prisma.product_variants.findFirst({
+      where: { barcode },
+      include: { products: true },
+    });
+
+    if (!variant) {
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+
+    const inventory = await prisma.inventories.findFirst({
+      where: { store_id: storeId, variant_id: variant.id },
+    });
+
+    return res.json({ variant, inventory });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Lookup by barcode for a store (legacy route)
+router.get('/stores/:storeId/lookup', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
     const storeId = Number(req.params.storeId);
     const barcode = String(req.query.barcode ?? '').trim();
     if (!Number.isFinite(storeId) || !barcode) {
       return res.status(400).json({ error: 'Invalid storeId/barcode' });
+    }
+
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    if (!isAdmin && Number.isFinite(activeStoreId) && storeId !== activeStoreId) {
+      return res.status(403).json({ error: 'Forbidden: store does not match active store' });
     }
 
     const variant = await prisma.product_variants.findFirst({
@@ -181,7 +257,6 @@ router.get('/stores/:storeId/lookup', async (req, res, next) => {
  * UC-M2: Receistock
  * Body: 
  * {
- *   storeId: number,
  *   variantId: number,
  *   quantity: number,
  *   unitCost: number,
@@ -196,7 +271,10 @@ router.post('/receive', async (req, res, next) => {
   try {
     const { storeId, variantId, quantity, unitCost, createdBy, lotCode, expiryDate, referenceId, reason } = req.body ?? {};
 
-    const storeIdNum = Number(storeId);
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const storeIdNum = isAdmin && storeId !== undefined && storeId !== null && storeId !== '' ? Number(storeId) : activeStoreId;
     const variantIdNum = Number(variantId);
     const qty = toDecimal(quantity);
     const cost = toDecimal(unitCost);
@@ -285,7 +363,6 @@ router.post('/receive', async (req, res, next) => {
  * UC-M2: Adjust stock
  * Body:
  * {
- *   storeId: number,
  *   variantId: number,
  *   delta?: number,
  *   setTo?: number,
@@ -298,7 +375,10 @@ router.post('/adjust', async (req, res, next) => {
   try {
     const { storeId, variantId, delta, setTo, createdBy, reason, referenceId, note } = req.body ?? {};
 
-    const storeIdNum = Number(storeId);
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const storeIdNum = isAdmin && storeId !== undefined && storeId !== null && storeId !== '' ? Number(storeId) : activeStoreId;
     const variantIdNum = Number(variantId);
     if (!Number.isFinite(storeIdNum) || !Number.isFinite(variantIdNum)) {
       return res.status(400).json({ error: 'Invalid storeId/variantId' });

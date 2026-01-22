@@ -4,7 +4,6 @@ export async function listPurchaseOrders({ q = "", storeId, supplierId, status, 
   const res = await axiosClient.get("/orders", {
     params: {
       q: q || undefined,
-      storeId: storeId ?? undefined,
       supplierId: supplierId ?? undefined,
       status: status || undefined,
       take,

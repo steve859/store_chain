@@ -2,10 +2,12 @@ import { Router, Request, Response } from 'express';
 import { ReportsService } from './reports.service';
 import { authenticateToken } from '../../middlewares/auth.middleware'; // Sửa path nếu cần
 import { authorizeRoles } from '../../middlewares/rbac.middleware';   // Sửa path nếu cần
+import { requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
 
 router.use(authenticateToken);
+router.use(requireActiveStoreUnlessAdmin);
 
 // Helper để parse ngày tháng từ query param
 const parseDates = (req: Request) => {
@@ -20,26 +22,30 @@ const parseDates = (req: Request) => {
 
 // Helper để xác định storeId
 // - Nếu là Admin: Cho phép truyền storeId qua query (để Admin lọc từng store)
-// - Nếu là Manager: Bắt buộc dùng storeId của chính user đó (không được xem store khác)
+// - Nếu là Non-admin: bắt buộc dùng active store (x-store-id)
 const getContextStoreId = (req: Request): number | undefined => {
   const user = (req as any).user; // Lấy từ middleware auth
-  const queryStoreId = req.query.storeId ? parseInt(req.query.storeId as string) : undefined;
+  const role = user?.role ? String(user.role) : '';
+  const isAdmin = role.toLowerCase() === 'admin';
 
-  if (user.role === 'ADMIN') {
-    return queryStoreId; // Admin được quyền chọn store hoặc null (xem tất cả)
+  const queryStoreIdRaw = req.query.storeId ? Number(req.query.storeId) : NaN;
+  const queryStoreId = Number.isFinite(queryStoreIdRaw) ? queryStoreIdRaw : undefined;
+
+  const activeStoreIdRaw = (req as any).activeStoreId !== undefined ? Number((req as any).activeStoreId) : NaN;
+  const activeStoreId = Number.isFinite(activeStoreIdRaw) ? activeStoreIdRaw : undefined;
+
+  if (isAdmin) {
+    return queryStoreId ?? activeStoreId;
   }
-  
-  // Nếu là Store Manager/Cashier, ép buộc xem store của mình
-  const userStoreId = user?.storeId ?? user?.store_id;
-  const parsed = userStoreId === null || userStoreId === undefined ? undefined : Number(userStoreId);
-  return Number.isFinite(parsed) ? parsed : undefined;
+
+  return activeStoreId;
 };
 
 /**
  * GET /api/reports/dashboard
  * Tổng hợp các chỉ số chính
  */
-router.get('/dashboard', authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req: Request, res: Response) => {
+router.get('/dashboard', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);
@@ -56,7 +62,7 @@ router.get('/dashboard', authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req:
  * GET /api/reports/revenue-chart
  * Dữ liệu biểu đồ đường
  */
-router.get('/revenue-chart', authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req: Request, res: Response) => {
+router.get('/revenue-chart', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);
@@ -72,7 +78,7 @@ router.get('/revenue-chart', authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (
  * GET /api/reports/top-products
  * Dữ liệu top sản phẩm bán chạy
  */
-router.get('/top-products', authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req: Request, res: Response) => {
+router.get('/top-products', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);

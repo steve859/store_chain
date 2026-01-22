@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as authService from './auth.service';
+import { authenticateToken } from '../../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -25,6 +26,22 @@ router.post('/login', async (req, res, next) => {
     
     // Ném lỗi ra cho middleware xử lý lỗi chung (errorHandler)
     next(error);
+  }
+});
+
+// GET /api/v1/auth/me
+router.get('/me', authenticateToken, async (req, res, next) => {
+  try {
+    const payload = req.user && typeof req.user === 'object' ? (req.user as any) : null;
+    const userId = Number(payload?.userId);
+    if (!Number.isFinite(userId)) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const user = await authService.me(userId);
+    return res.json({ user });
+  } catch (err) {
+    next(err);
   }
 });
 

@@ -7,12 +7,7 @@ import Modal from "../../components/ui/modal";
 import { FaPlus, FaHistory, FaWarehouse, FaArrowUp, FaArrowDown } from "react-icons/fa";
 
 import { listStores } from "../../services/stores";
-import {
-    createInventoryAdjustment,
-    getInventoryByStoreVariant,
-    listInventoryAdjustments,
-    listProducts,
-} from "../../services/inventoryAdjustments";
+import { createInventoryAdjustment, getInventoryByVariant, listInventoryAdjustments, listProducts } from "../../services/inventoryAdjustments";
 
 // Adjustment reasons
 const adjustmentReasons = [
@@ -72,9 +67,14 @@ const InventoryAdjustment = () => {
         setLoading(true);
         setError("");
         try {
+            const selectedStoreId = storeId !== undefined && storeId !== null && storeId !== "" ? Number(storeId) : null;
+            const activeStoreId = localStorage.getItem("activeStoreId") ? Number(localStorage.getItem("activeStoreId")) : null;
+            if (Number.isFinite(selectedStoreId) && Number.isFinite(activeStoreId) && selectedStoreId !== activeStoreId) {
+                localStorage.setItem("activeStoreId", String(selectedStoreId));
+            }
+
             const res = await listInventoryAdjustments({
                 q,
-                storeId,
                 take: 200,
                 skip: 0,
             });
@@ -135,9 +135,14 @@ const InventoryAdjustment = () => {
             return;
         }
 
+        const activeStoreId = localStorage.getItem("activeStoreId") ? Number(localStorage.getItem("activeStoreId")) : null;
+        if (Number.isFinite(activeStoreId) && storeId !== activeStoreId) {
+            localStorage.setItem("activeStoreId", String(storeId));
+        }
+
         let cancelled = false;
         setLoadingStock(true);
-        getInventoryByStoreVariant(storeId, variantId)
+        getInventoryByVariant(variantId)
             .then((res) => {
                 if (cancelled) return;
                 const qty = Number(res?.inventory?.quantity ?? 0);
@@ -209,8 +214,13 @@ const InventoryAdjustment = () => {
         }
 
         try {
+            const selectedStoreId = formData.store ? Number(formData.store) : null;
+            const activeStoreId = localStorage.getItem("activeStoreId") ? Number(localStorage.getItem("activeStoreId")) : null;
+            if (Number.isFinite(selectedStoreId) && Number.isFinite(activeStoreId) && selectedStoreId !== activeStoreId) {
+                localStorage.setItem("activeStoreId", String(selectedStoreId));
+            }
+
             await createInventoryAdjustment({
-                storeId: formData.store,
                 variantId: formData.variant,
                 adjustmentType: formData.adjustmentType,
                 quantity: formData.quantity,

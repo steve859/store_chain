@@ -28,7 +28,7 @@ const paymentMethods = [
 
 const POS = () => {
     // Shift management
-    const { isShiftOpen, requestOpenModal } = useShift();
+    const { isShiftOpen, requestOpenModal, refreshShift } = useShift();
 
     const [posProducts, setPosProducts] = useState([]);
     const [posLoading, setPosLoading] = useState(false);
@@ -50,17 +50,25 @@ const POS = () => {
             try {
                 const data = await listPosCatalog({ take: 200, skip: 0 });
                 if (!isMounted) return;
-                const mapped = (data?.items || []).map((row) => ({
-                    id: row.sku_id,
-                    sku: row.sku_code,
-                    barcode: row.barcode || "",
-                    name: row.product_name,
-                    price: Number.parseFloat(String(row.price)),
-                    stock: Number(row.stock || 0),
-                    image: "🛒",
-                    category: "Khác",
-                    unit: row.unit,
-                }));
+                const mapped = (data?.items || []).map((row) => {
+                    const variant = row?.variant;
+                    const product = row?.product;
+                    const inventory = row?.inventory;
+
+                    const displayName = [product?.name, variant?.name].filter(Boolean).join(" - ") || product?.name || "(Không rõ)";
+
+                    return {
+                        id: variant?.id,
+                        sku: product?.sku || variant?.variant_code || "",
+                        barcode: variant?.barcode || "",
+                        name: displayName,
+                        price: Number.parseFloat(String(variant?.price ?? 0)),
+                        stock: Number(inventory?.quantity ?? 0),
+                        image: "🛒",
+                        category: product?.category || "Khác",
+                        unit: product?.unit,
+                    };
+                });
                 setPosProducts(mapped);
             } catch (e) {
                 if (!isMounted) return;
@@ -239,16 +247,21 @@ const POS = () => {
                 paidAmount: paymentMethod === "cash" ? parseFloat(cashReceived) : total,
                 totalAmount: total,
                 items: cart.map((it) => ({
-                    skuId: it.id,
+                    variantId: it.id,
                     quantity: it.quantity,
-                    price: it.price,
                 })),
             };
             const result = await checkoutSale(payload);
-            const saleId = result?.sale?.id;
+            const saleId = result?.invoice?.id;
             alert(
                 `Thanh toán thành công!\nMã đơn: ${saleId || "-"}\nTổng: ${formatCurrency(total)}\nPhương thức: ${paymentMethod === "cash" ? "Tiền mặt" : "Thẻ"}`,
             );
+
+            try {
+                await refreshShift();
+            } catch {
+                // ignore
+            }
         } catch (e) {
             alert(e?.response?.data?.error || e?.message || "Không thể lưu đơn hàng");
             return;

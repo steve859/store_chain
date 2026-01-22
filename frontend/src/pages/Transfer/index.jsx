@@ -151,7 +151,13 @@ const Transfer = () => {
                 return;
             }
             try {
-                const res = await listStoreCatalog({ storeId: Number(formData.fromStore), take: 200, skip: 0 });
+                const selectedStoreId = Number(formData.fromStore);
+                const activeStoreId = localStorage.getItem("activeStoreId") ? Number(localStorage.getItem("activeStoreId")) : null;
+                if (Number.isFinite(selectedStoreId) && Number.isFinite(activeStoreId) && selectedStoreId !== activeStoreId) {
+                    localStorage.setItem("activeStoreId", String(selectedStoreId));
+                }
+
+                const res = await listStoreCatalog({ take: 200, skip: 0 });
                 if (cancelled) return;
                 setCatalog(Array.isArray(res?.items) ? res.items : []);
             } catch (e) {

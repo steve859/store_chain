@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { Prisma } from '../../generated/prisma';
 import prisma from '../../db/prisma';
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
+
+router.use(authenticateToken);
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -24,7 +28,7 @@ const generateTransferNumber = (): string => {
  * UC-M8: List transfers
  * GET /api/v1/transfers?fromStoreId=1&toStoreId=2&status=pending&take=50&skip=0&q=tr-
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
     const fromStoreId = req.query.fromStoreId ? Number(req.query.fromStoreId) : undefined;
     const toStoreId = req.query.toStoreId ? Number(req.query.toStoreId) : undefined;
@@ -32,6 +36,19 @@ router.get('/', async (req, res, next) => {
     const q = String(req.query.q ?? '').trim();
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
+
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = req.activeStoreId ?? null;
+
+    if (!isAdmin && activeStoreId) {
+      if (Number.isFinite(fromStoreId) && fromStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden: fromStoreId not allowed' });
+      }
+      if (Number.isFinite(toStoreId) && toStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden: toStoreId not allowed' });
+      }
+    }
 
     const where: Prisma.store_transfersWhereInput = {
       ...(Number.isFinite(fromStoreId) ? { from_store_id: fromStoreId } : {}),
@@ -49,6 +66,10 @@ router.get('/', async (req, res, next) => {
           }
         : {}),
     };
+
+    if (!isAdmin && activeStoreId && !Number.isFinite(fromStoreId) && !Number.isFinite(toStoreId)) {
+      where.OR = [{ from_store_id: activeStoreId }, { to_store_id: activeStoreId }];
+    }
 
     const [items, total] = await Promise.all([
       prisma.store_transfers.findMany({
@@ -76,7 +97,7 @@ router.get('/', async (req, res, next) => {
  * UC-M8: Transfer details
  * GET /api/v1/transfers/:id
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -115,12 +136,25 @@ router.get('/:id', async (req, res, next) => {
  *   items: Array<{ variantId: number, quantity: number }>
  * }
  */
-router.post('/', async (req, res, next) => {
+router.post('/', requireActiveStore, async (req, res, next) => {
   try {
     const { fromStoreId, toStoreId, createdBy, transferNumber, items } = req.body ?? {};
-    const fromStoreIdNum = Number(fromStoreId);
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+
+    const fromStoreIdNum = isAdmin ? Number(fromStoreId) : activeStoreId;
     const toStoreIdNum = Number(toStoreId);
-    const createdByNum = createdBy !== undefined && createdBy !== null ? Number(createdBy) : null;
+    const createdByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
+    const createdByNum = Number.isFinite(createdByFromToken)
+      ? createdByFromToken
+      : createdBy !== undefined && createdBy !== null
+        ? Number(createdBy)
+        : null;
+
+    if (!isAdmin && Number.isFinite(fromStoreId) && Number(fromStoreId) !== activeStoreId) {
+      return res.status(403).json({ error: 'Forbidden: fromStoreId must match active store' });
+    }
 
     if (!Number.isFinite(fromStoreIdNum) || !Number.isFinite(toStoreIdNum) || fromStoreIdNum === toStoreIdNum) {
       return res.status(400).json({ error: 'Invalid fromStoreId/toStoreId' });

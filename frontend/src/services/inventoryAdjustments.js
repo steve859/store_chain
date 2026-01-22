@@ -1,24 +1,22 @@
 import axiosClient from "./axiosClient";
 
-export async function listInventoryAdjustments({ storeId, q, take = 50, skip = 0 } = {}) {
+export async function listInventoryAdjustments({ q, take = 50, skip = 0 } = {}) {
   const params = {
     take,
     skip,
   };
-  if (storeId !== undefined && storeId !== null && storeId !== "") params.storeId = storeId;
   if (q) params.q = q;
 
   const res = await axiosClient.get("/inventory/adjustments", { params });
   return res.data;
 }
 
-export async function getInventoryByStoreVariant(storeId, variantId) {
-  const res = await axiosClient.get(`/inventory/stores/${storeId}/variants/${variantId}`);
+export async function getInventoryByVariant(variantId) {
+  const res = await axiosClient.get(`/inventory/variants/${variantId}`);
   return res.data;
 }
 
 export async function createInventoryAdjustment({
-  storeId,
   variantId,
   adjustmentType,
   quantity,
@@ -35,7 +33,6 @@ export async function createInventoryAdjustment({
   const finalReason = reason === "Khác" ? String(customReason ?? "").trim() : String(reason ?? "").trim();
 
   const payload = {
-    storeId: Number(storeId),
     variantId: Number(variantId),
     delta,
     reason: finalReason || "Inventory adjustment",

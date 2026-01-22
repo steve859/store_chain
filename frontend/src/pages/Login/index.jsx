@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
 import bgImage from "../../assets/bg.jpg";
 import { FaLock, FaExclamationTriangle } from "react-icons/fa";
+import axiosClient from "../../services/axiosClient";
 
 // Lockout duration in milliseconds (5 minutes)
 const LOCKOUT_DURATION = 5 * 60 * 1000;
@@ -126,9 +127,6 @@ const Login = () => {
       return;
     }
 
-    // Extract name from email (part before @)
-    const name = username.split('@')[0].toLowerCase();
-
     // Save or remove email based on remember me checkbox
     if (rememberMe) {
       localStorage.setItem("rememberedEmail", username);
@@ -136,33 +134,49 @@ const Login = () => {
       localStorage.removeItem("rememberedEmail");
     }
 
-    // Role-based routing with password validation
-    // In a real app, this would call an API
-    const validRoles = ["admin", "manager", "cashier"];
-    if (validRoles.includes(name) && password === "123456") {
-      // Clear failed attempts on successful login
-      setFailedAttempts(0);
-      localStorage.removeItem("loginLockout");
+    axiosClient
+      .post("/auth/login", { email: username, password })
+      .then((res) => {
+        const token = res?.data?.token;
+        const user = res?.data?.user;
 
-      // Log successful login
-      console.log(`[LOGIN] Successful login at ${new Date().toISOString()} - User: ${username}`);
+        if (!token || !user) {
+          setError("Đăng nhập thất bại: phản hồi không hợp lệ");
+          return;
+        }
 
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('userEmail', username);
+        // Clear failed attempts on successful login
+        setFailedAttempts(0);
+        localStorage.removeItem("loginLockout");
 
-      if (name === "admin") {
-        localStorage.setItem('userRole', 'admin');
-        navigate("/admin");
-      } else if (name === "manager") {
-        localStorage.setItem('userRole', 'store_manager');
-        navigate("/employee");
-      } else if (name === "cashier") {
-        localStorage.setItem('userRole', 'cashier');
-        navigate("/cashier");
-      }
-    } else {
-      handleFailedLogin();
-    }
+        localStorage.setItem("token", token);
+        localStorage.setItem("isAuthenticated", "true");
+        localStorage.setItem("userEmail", user.email || username);
+        localStorage.setItem("userRole", user.role || "");
+        localStorage.setItem("user", JSON.stringify(user));
+
+        const primaryStoreId = user.primaryStoreId ?? user.storeId ?? user.stores?.find?.((s) => s.isPrimary)?.storeId ?? user.stores?.[0]?.storeId;
+        if (primaryStoreId) {
+          localStorage.setItem("activeStoreId", String(primaryStoreId));
+        }
+
+        const role = String(user.role || "").toLowerCase();
+        if (role.includes("admin")) {
+          navigate("/admin");
+        } else if (role.includes("cashier")) {
+          navigate("/cashier");
+        } else {
+          navigate("/employee");
+        }
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401) {
+          handleFailedLogin();
+          return;
+        }
+        setError(err?.response?.data?.message || err?.message || "Đăng nhập thất bại");
+      });
   };
 
   const isLocked = lockoutUntil && lockoutUntil > new Date();

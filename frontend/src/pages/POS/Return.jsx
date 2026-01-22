@@ -1,47 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Header } from "../../components/ui/header";
 import { Card, CardContent } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 import { FaSearch, FaUndo, FaReceipt, FaCheckCircle, FaExclamationTriangle, FaWarehouse } from "react-icons/fa";
-
-// Dummy invoices for return
-const invoices = [
-    {
-        id: "INV-001",
-        date: "2026-01-10T14:30:00",
-        customer: "Nguyễn Văn A",
-        items: [
-            { id: 1, name: "Sữa tươi Vinamilk 1L", sku: "SKU-001", price: 35000, quantity: 2, returned: 0 },
-            { id: 2, name: "Coca-Cola 330ml", sku: "SKU-002", price: 12000, quantity: 5, returned: 0 },
-        ],
-        total: 130000,
-        paymentMethod: "cash",
-    },
-    {
-        id: "INV-002",
-        date: "2026-01-09T10:15:00",
-        customer: "Khách lẻ",
-        items: [
-            { id: 3, name: "Bánh Oreo", sku: "SKU-003", price: 25000, quantity: 3, returned: 1 },
-            { id: 4, name: "Mì gói Hảo Hảo", sku: "SKU-004", price: 5000, quantity: 10, returned: 0 },
-        ],
-        total: 125000,
-        paymentMethod: "card",
-    },
-    {
-        id: "INV-003",
-        date: "2026-01-05T16:45:00",
-        customer: "Trần Thị B",
-        items: [
-            { id: 5, name: "Nước suối Aquafina", sku: "SKU-005", price: 8000, quantity: 4, returned: 0 },
-        ],
-        total: 32000,
-        paymentMethod: "cash",
-    },
-];
+import axiosClient from "../../services/axiosClient";
 
 // Return reasons
 const returnReasons = [
@@ -52,27 +15,15 @@ const returnReasons = [
     "Khác",
 ];
 
-// Return history
-const initialReturnHistory = [
-    {
-        id: "RTN-001",
-        invoiceId: "INV-002",
-        date: "2026-01-09T11:00:00",
-        item: "Bánh Oreo",
-        quantity: 1,
-        reason: "Sản phẩm hư hỏng",
-        refundAmount: 25000,
-        refundMethod: "cash",
-        restockProduct: true,
-        approvedBy: "Admin",
-    },
-];
-
 const Return = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedInvoice, setSelectedInvoice] = useState(null);
-    const [returnHistory, setReturnHistory] = useState(initialReturnHistory);
+    const [returnHistory, setReturnHistory] = useState([]);
     const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+    const [invoiceMatches, setInvoiceMatches] = useState([]);
+    const [loadingInvoice, setLoadingInvoice] = useState(false);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [errorMessage, setErrorMessage] = useState(null);
     const [formErrors, setFormErrors] = useState({});
 
     // Return form state
@@ -82,30 +33,80 @@ const Return = () => {
     const [refundMethod, setRefundMethod] = useState("cash");
     const [restockProducts, setRestockProducts] = useState(true);
 
-    // Search invoice
-    const searchInvoice = () => {
-        const invoice = invoices.find((inv) => inv.id.toLowerCase() === searchTerm.toLowerCase());
-        if (invoice) {
-            // Check if return is within allowed time (e.g., 7 days)
-            const invoiceDate = new Date(invoice.date);
-            const now = new Date();
-            const daysDiff = Math.floor((now - invoiceDate) / (1000 * 60 * 60 * 24));
+    // Format currency
+    const formatCurrency = (amount) => {
+        const n = Number(amount);
+        if (!Number.isFinite(n)) return "0đ";
+        return new Intl.NumberFormat("vi-VN").format(n) + "đ";
+    };
 
-            if (daysDiff > 7) {
-                alert("Hóa đơn đã quá thời hạn trả hàng (7 ngày)!");
+    // Search invoice
+    const searchInvoice = async () => {
+        const q = searchTerm.trim();
+        if (!q) return;
+
+        setErrorMessage(null);
+        try {
+            const res = await axiosClient.get("/returns/invoices", { params: { q, take: 10, skip: 0 } });
+            const items = res.data?.items ?? [];
+            if (!items.length) {
+                alert("Không tìm thấy hóa đơn!");
                 return;
             }
 
-            setSelectedInvoice(invoice);
+            if (items.length === 1) {
+                await selectInvoice(items[0]);
+                return;
+            }
+
+            setInvoiceMatches(items);
+            setIsReturnModalOpen(true);
+        } catch (e) {
+            setErrorMessage(e?.response?.data?.error || e.message);
+        }
+    };
+
+    const selectInvoice = async (invoice) => {
+        setLoadingInvoice(true);
+        setErrorMessage(null);
+        try {
+            const invoiceId = Number(invoice.id);
+            const res = await axiosClient.get(`/returns/invoices/${invoiceId}`);
+
+            const inv = res.data?.invoice;
+            const items = res.data?.items ?? [];
+
+            // Optional: soft-check window (7 days) like old UI
+            const dateStr = inv?.created_at || inv?.createdAt || inv?.date;
+            if (dateStr) {
+                const invoiceDate = new Date(dateStr);
+                const now = new Date();
+                const daysDiff = Math.floor((now - invoiceDate) / (1000 * 60 * 60 * 24));
+                if (daysDiff > 7) {
+                    alert("Hóa đơn đã quá thời hạn trả hàng (7 ngày)!");
+                    return;
+                }
+            }
+
+            setSelectedInvoice(inv);
             setReturnItems(
-                invoice.items.map((item) => ({
-                    ...item,
+                items.map((item) => ({
+                    id: item.invoiceItemId,
+                    name: item.name,
+                    sku: item.sku,
+                    price: Number(item.unitPrice) || 0,
+                    quantity: Number(item.soldQty) || 0,
+                    returned: Number(item.returnedQty) || 0,
+                    maxReturn: Math.max(0, Number(item.remainingQty) || 0),
                     returnQty: 0,
-                    maxReturn: item.quantity - item.returned,
                 }))
             );
-        } else {
-            alert("Không tìm thấy hóa đơn!");
+            setFormErrors({});
+            setReturnReason("");
+            setCustomReason("");
+        } finally {
+            setLoadingInvoice(false);
+            setIsReturnModalOpen(false);
         }
     };
 
@@ -123,7 +124,10 @@ const Return = () => {
     };
 
     // Calculate refund total
-    const refundTotal = returnItems.reduce((sum, item) => sum + item.price * item.returnQty, 0);
+    const refundTotal = useMemo(
+        () => returnItems.reduce((sum, item) => sum + item.price * item.returnQty, 0),
+        [returnItems]
+    );
 
     // Validate return
     const validateReturn = () => {
@@ -149,8 +153,25 @@ const Return = () => {
         return errors;
     };
 
+    const loadReturnHistory = async () => {
+        setLoadingHistory(true);
+        try {
+            const res = await axiosClient.get("/returns", { params: { take: 50, skip: 0 } });
+            setReturnHistory(res.data?.items ?? []);
+        } catch (e) {
+            setErrorMessage(e?.response?.data?.error || e.message);
+        } finally {
+            setLoadingHistory(false);
+        }
+    };
+
+    useEffect(() => {
+        loadReturnHistory();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Process return
-    const processReturn = (e) => {
+    const processReturn = async (e) => {
         e.preventDefault();
         const errors = validateReturn();
         if (Object.keys(errors).length > 0) {
@@ -158,39 +179,38 @@ const Return = () => {
             return;
         }
 
-        // Create return records
-        const newReturns = returnItems
-            .filter((item) => item.returnQty > 0)
-            .map((item) => ({
-                id: `RTN-${String(returnHistory.length + 1).padStart(3, "0")}`,
-                invoiceId: selectedInvoice.id,
-                date: new Date().toISOString(),
-                item: item.name,
-                quantity: item.returnQty,
+        try {
+            const invoiceId = Number(selectedInvoice?.id);
+            if (!Number.isFinite(invoiceId)) {
+                alert("Hóa đơn không hợp lệ!");
+                return;
+            }
+
+            const payload = {
+                invoiceId,
+                refundMethod,
+                restock: restockProducts,
                 reason: returnReason === "Khác" ? customReason : returnReason,
-                refundAmount: item.price * item.returnQty,
-                refundMethod: refundMethod,
-                restockProduct: restockProducts,
-                approvedBy: "Admin", // Would come from auth context
-            }));
+                note: null,
+                items: returnItems
+                    .filter((item) => item.returnQty > 0)
+                    .map((item) => ({
+                        invoiceItemId: item.id,
+                        quantity: item.returnQty,
+                    })),
+            };
 
-        setReturnHistory([...newReturns, ...returnHistory]);
+            const res = await axiosClient.post("/returns", payload);
 
-        alert(`Trả hàng thành công!\nSố tiền hoàn: ${formatCurrency(refundTotal)}`);
+            alert(`Trả hàng thành công!\nMã phiếu: ${res.data?.returnNumber || ""}\nSố tiền hoàn: ${formatCurrency(refundTotal)}`);
 
-        // Reset
-        setSelectedInvoice(null);
-        setSearchTerm("");
-        setReturnItems([]);
-        setReturnReason("");
-        setCustomReason("");
-        setFormErrors({});
-        setIsReturnModalOpen(false);
-    };
-
-    // Format currency
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat("vi-VN").format(amount) + "đ";
+            // Refresh UI
+            await loadReturnHistory();
+            await selectInvoice({ id: invoiceId });
+            setSearchTerm("");
+        } catch (e) {
+            setErrorMessage(e?.response?.data?.error || e.message);
+        }
     };
 
     // Format date
@@ -238,6 +258,37 @@ const Return = () => {
                 </CardContent>
             </Card>
 
+            {errorMessage && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {errorMessage}
+                </div>
+            )}
+
+            <Modal
+                isOpen={isReturnModalOpen}
+                onClose={() => setIsReturnModalOpen(false)}
+                title="Chọn hóa đơn"
+            >
+                <div className="space-y-2">
+                    {invoiceMatches.map((inv) => (
+                        <button
+                            key={inv.id}
+                            type="button"
+                            className="w-full rounded-md border p-3 text-left hover:bg-gray-50"
+                            onClick={() => selectInvoice(inv)}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="font-mono text-sm text-gray-800">{inv.invoice_number || `#${inv.id}`}</div>
+                                <div className="text-sm font-medium text-teal-700">{formatCurrency(inv.total_amount || 0)}</div>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                                {inv.created_at ? formatDate(inv.created_at) : ""} — {inv.customers?.name || "Khách lẻ"}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </Modal>
+
             {/* Selected Invoice */}
             {selectedInvoice && (
                 <Card>
@@ -247,12 +298,12 @@ const Return = () => {
                                 <FaReceipt className="text-teal-600 text-xl" />
                                 <div>
                                     <h3 className="font-bold">{selectedInvoice.id}</h3>
-                                    <p className="text-sm text-gray-500">{formatDate(selectedInvoice.date)}</p>
+                                    <p className="text-sm text-gray-500">{selectedInvoice.created_at ? formatDate(selectedInvoice.created_at) : ""}</p>
                                 </div>
                             </div>
                             <div className="text-right">
                                 <p className="text-sm text-gray-500">Khách hàng</p>
-                                <p className="font-medium">{selectedInvoice.customer}</p>
+                                <p className="font-medium">{selectedInvoice.customers?.name || "Khách lẻ"}</p>
                             </div>
                         </div>
 
@@ -296,6 +347,10 @@ const Return = () => {
                                 ))}
                             </tbody>
                         </table>
+
+                        {loadingInvoice && (
+                            <p className="text-sm text-gray-500 mb-4">Đang tải hóa đơn...</p>
+                        )}
 
                         {formErrors.items && (
                             <p className="text-red-500 text-sm mb-4">{formErrors.items}</p>
@@ -341,6 +396,7 @@ const Return = () => {
                                 >
                                     <option value="cash">Tiền mặt</option>
                                     <option value="card">Hoàn về thẻ</option>
+                                    <option value="other">Khác</option>
                                 </select>
                             </div>
 
@@ -399,41 +455,37 @@ const Return = () => {
                                     <th className="text-left p-4 font-medium text-gray-600">Mã trả hàng</th>
                                     <th className="text-left p-4 font-medium text-gray-600">Hóa đơn gốc</th>
                                     <th className="text-left p-4 font-medium text-gray-600">Thời gian</th>
-                                    <th className="text-left p-4 font-medium text-gray-600">Sản phẩm</th>
-                                    <th className="text-center p-4 font-medium text-gray-600">SL</th>
-                                    <th className="text-left p-4 font-medium text-gray-600">Lý do</th>
-                                    <th className="text-right p-4 font-medium text-gray-600">Hoàn tiền</th>
-                                    <th className="text-center p-4 font-medium text-gray-600">Nhập kho</th>
+                                    <th className="text-left p-4 font-medium text-gray-600">Trạng thái</th>
+                                    <th className="text-right p-4 font-medium text-gray-600">Tổng hoàn</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {returnHistory.map((rtn) => (
                                     <tr key={rtn.id} className="hover:bg-gray-50">
-                                        <td className="p-4 font-mono text-blue-600">{rtn.id}</td>
-                                        <td className="p-4 font-mono text-gray-600">{rtn.invoiceId}</td>
-                                        <td className="p-4 text-gray-600">{formatDate(rtn.date)}</td>
-                                        <td className="p-4">{rtn.item}</td>
-                                        <td className="p-4 text-center">{rtn.quantity}</td>
-                                        <td className="p-4 text-gray-600">{rtn.reason}</td>
-                                        <td className="p-4 text-right font-medium text-teal-600">{formatCurrency(rtn.refundAmount)}</td>
-                                        <td className="p-4 text-center">
-                                            {rtn.restockProduct ? (
-                                                <FaCheckCircle className="text-green-500 inline" />
-                                            ) : (
-                                                <span className="text-gray-400">-</span>
-                                            )}
+                                        <td className="p-4 font-mono text-blue-600">{rtn.return_number || `#${rtn.id}`}</td>
+                                        <td className="p-4 font-mono text-gray-600">{rtn.invoices?.invoice_number || rtn.invoice_id}</td>
+                                        <td className="p-4 text-gray-600">{rtn.created_at ? formatDate(rtn.created_at) : ""}</td>
+                                        <td className="p-4">
+                                            <span className="inline-flex items-center gap-2">
+                                                <span className="text-gray-700">{rtn.status}</span>
+                                                {rtn.status === "completed" ? <FaCheckCircle className="text-green-500" /> : null}
+                                            </span>
                                         </td>
+                                        <td className="p-4 text-right font-medium text-teal-600">{formatCurrency(rtn.total_refund || 0)}</td>
                                     </tr>
                                 ))}
-                                {returnHistory.length === 0 && (
+                                {!loadingHistory && returnHistory.length === 0 && (
                                     <tr>
-                                        <td colSpan="8" className="p-8 text-center text-gray-500">
+                                        <td colSpan="5" className="p-8 text-center text-gray-500">
                                             Chưa có lịch sử trả hàng
                                         </td>
                                     </tr>
                                 )}
                             </tbody>
                         </table>
+                        {loadingHistory && (
+                            <div className="p-4 text-sm text-gray-500">Đang tải lịch sử...</div>
+                        )}
                     </div>
                 </CardContent>
             </Card>

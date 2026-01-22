@@ -13,6 +13,7 @@ import PurchaseOrders from '../pages/PurchaseOrders';
 import InventoryAdjustment from '../pages/InventoryAdjustment';
 import Transfer from '../pages/Transfer';
 import Promotions from '../pages/Promotions';
+import StoreSwitcher from '../components/StoreSwitcher';
 
 const AdminLayout = () => {
   const [currentView, setCurrentView] = useState("dashboard");
@@ -24,6 +25,9 @@ const AdminLayout = () => {
       localStorage.removeItem('isAuthenticated');
       localStorage.removeItem('userRole');
       localStorage.removeItem('userEmail');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('activeStoreId');
       navigate('/');
     }
   };
@@ -103,7 +107,10 @@ const AdminLayout = () => {
 
       {/* --- MAIN CONTENT --- */}
       <main className="flex-1 overflow-x-auto overflow-y-auto">
-        <header className='h-16 flex items-center px-6 border-b border-gray-300'></header>
+        <header className='h-16 flex items-center justify-between px-6 border-b border-gray-300 bg-white'>
+          <StoreSwitcher className="flex items-center" />
+          <div className="text-sm text-gray-600">{localStorage.getItem('userEmail') || ''}</div>
+        </header>
         <div className='p-8'>
           <CurrentComponent />
         </div>

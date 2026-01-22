@@ -1,11 +1,10 @@
 import axiosClient from "./axiosClient";
 
-export async function listPosCatalog({ q = "", barcode = "", storeId = "", take = 200, skip = 0 } = {}) {
-  const res = await axiosClient.get("/sales/catalog", {
+export async function listPosCatalog({ q = "", barcode = "", take = 200, skip = 0 } = {}) {
+  const res = await axiosClient.get("/products/catalog", {
     params: {
       q: q || undefined,
       barcode: barcode || undefined,
-      storeId: storeId || undefined,
       take,
       skip,
     },
@@ -14,16 +13,12 @@ export async function listPosCatalog({ q = "", barcode = "", storeId = "", take 
 }
 
 export async function checkoutSale({
-  storeId = "",
-  cashierId = "",
   paymentMethod,
   paidAmount = null,
   totalAmount = null,
   items = [],
 } = {}) {
-  const res = await axiosClient.post("/sales/checkout", {
-    storeId: storeId || undefined,
-    cashierId: cashierId || undefined,
+  const res = await axiosClient.post("/pos/checkout", {
     paymentMethod,
     paidAmount,
     totalAmount,

@@ -40,10 +40,9 @@ export async function cancelTransfer(id) {
 }
 
 // Uses BE products catalog to get variant + inventory snapshot for a store
-export async function listStoreCatalog({ storeId, q = "", barcode = "", take = 200, skip = 0 } = {}) {
+export async function listStoreCatalog({ q = "", barcode = "", take = 200, skip = 0 } = {}) {
   const res = await axiosClient.get("/products/catalog", {
     params: {
-      storeId,
       q: q || undefined,
       barcode: barcode || undefined,
       take,

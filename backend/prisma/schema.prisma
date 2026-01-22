@@ -33,6 +33,7 @@ model customers {
   created_at     DateTime?        @default(now()) @db.Timestamptz(6)
   invoices       invoices[]
   loyalty_points loyalty_points[]
+  returns        returns[]
 
   @@index([phone], map: "idx_customers_phone")
 }
@@ -63,6 +64,7 @@ model invoice_items {
   line_total       Decimal?          @db.Decimal(18, 2)
   invoices         invoices?         @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   product_variants product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  return_items     return_items[]
 
   @@index([variant_id], map: "idx_invoice_items_variant")
 }
@@ -80,6 +82,7 @@ model invoices {
   created_by     Int?
   created_at     DateTime?       @default(now()) @db.Timestamptz(6)
   invoice_items  invoice_items[]
+  returns        returns[]
   users          users?          @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customers      customers?      @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stores         stores?         @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -111,11 +114,14 @@ model product_variants {
   created_at           DateTime?              @default(now()) @db.Timestamptz(6)
   inventories          inventories[]
   invoice_items        invoice_items[]
+  return_items         return_items[]
   products             products?              @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   purchase_items       purchase_items[]
+  purchase_order_receipt_items purchase_order_receipt_items[]
   stock_lots           stock_lots[]
   stock_movements      stock_movements[]
   store_transfer_items store_transfer_items[]
+  variant_prices        variant_prices[]
 
   @@unique([product_id, variant_code])
   @@index([barcode], map: "idx_variants_barcode")
@@ -128,13 +134,20 @@ model products {
   name             String
   brand            String?
   category         String?
+  brand_id         Int?
+  category_id      Int?
   description      String?
   unit             String
   is_active        Boolean?           @default(true)
   created_at       DateTime?          @default(now()) @db.Timestamptz(6)
   product_variants product_variants[]
 
+  brands           brands?            @relation(fields: [brand_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  categories       categories?        @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
   @@index([name], map: "idx_products_name")
+  @@index([brand_id], map: "idx_products_brand_id")
+  @@index([category_id], map: "idx_products_category_id")
 }
 
 model promotions {
@@ -158,15 +171,40 @@ model promotions {
   @@index([code], map: "idx_promotions_code")
 }
 
+model complaints {
+  id            Int       @id @default(autoincrement())
+  code          String?   @unique
+  store_id      String?   @db.Text
+  employee_id   String?   @db.Text
+  store_name    String
+  employee_name String
+  reason        String
+  description   String
+  image         String?
+  status        String    @default("Chờ xử lý")
+  admin_note    String?
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+  resolved_at   DateTime? @db.Timestamptz(6)
+
+  @@index([code], map: "idx_complaints_code")
+  @@index([status], map: "idx_complaints_status")
+  @@index([created_at], map: "idx_complaints_created_at")
+  @@index([employee_id], map: "idx_complaints_employee_id")
+  @@index([store_id], map: "idx_complaints_store_id")
+}
+
 model purchase_items {
   id                Int               @id @default(autoincrement())
   purchase_order_id Int?
   variant_id        Int?
   quantity          Decimal           @db.Decimal
+  received_quantity Decimal           @default(0) @db.Decimal
   unit_cost         Decimal           @db.Decimal(14, 2)
   line_total        Decimal?          @db.Decimal(18, 2)
   purchase_orders   purchase_orders?  @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   product_variants  product_variants? @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchase_order_receipt_items purchase_order_receipt_items[]
 }
 
 model purchase_orders {
@@ -178,13 +216,16 @@ model purchase_orders {
   total_amount   Decimal?         @default(0) @db.Decimal(18, 2)
   created_by     Int?
   created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamptz(6)
   purchase_items purchase_items[]
+  purchase_order_receipts purchase_order_receipts[]
   users          users?           @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stores         stores?          @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   suppliers      suppliers?       @relation(fields: [supplier_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([store_id], map: "idx_purchase_orders_store")
   @@index([supplier_id], map: "idx_purchase_orders_supplier")
+  @@index([store_id, created_at], map: "idx_purchase_orders_store_created_at")
 }
 
 model roles {
@@ -192,6 +233,7 @@ model roles {
   name        String  @unique
   description String?
   users       users[]
+  user_stores user_stores[]
 }
 
 model stock_lots {
@@ -250,6 +292,9 @@ model store_transfers {
   users                                        users?                 @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stores_store_transfers_from_store_idTostores stores?                @relation("store_transfers_from_store_idTostores", fields: [from_store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stores_store_transfers_to_store_idTostores   stores?                @relation("store_transfers_to_store_idTostores", fields: [to_store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([from_store_id, created_at], map: "idx_store_transfers_from_store_created_at")
+  @@index([to_store_id, created_at], map: "idx_store_transfers_to_store_created_at")
 }
 
 model stores {
@@ -264,6 +309,12 @@ model stores {
   inventories                                           inventories[]
   invoices                                              invoices[]
   purchase_orders                                       purchase_orders[]
+  purchase_order_receipts                               purchase_order_receipts[]
+  returns                                               returns[]
+  pos_shifts                                            pos_shifts[]
+  cash_movements                                        cash_movements[]
+  user_stores                                           user_stores[]
+  variant_prices                                        variant_prices[]
   stock_lots                                            stock_lots[]
   stock_movements                                       stock_movements[]
   store_transfers_store_transfers_from_store_idTostores store_transfers[] @relation("store_transfers_from_store_idTostores")
@@ -281,6 +332,7 @@ model suppliers {
   note            String?
   created_at      DateTime?         @default(now()) @db.Timestamptz(6)
   purchase_orders purchase_orders[]
+  purchase_order_receipts purchase_order_receipts[]
 
   @@index([name], map: "idx_suppliers_name")
 }
@@ -300,8 +352,209 @@ model users {
   audit_logs      audit_logs[]
   invoices        invoices[]
   purchase_orders purchase_orders[]
+  purchase_order_receipts purchase_order_receipts[]
   stock_movements stock_movements[]
   store_transfers store_transfers[]
+  returns         returns[]
+  pos_shifts_opened pos_shifts[]    @relation("pos_shifts_opened")
+  pos_shifts_closed pos_shifts[]    @relation("pos_shifts_closed")
+  cash_movements   cash_movements[]
+  user_stores      user_stores[]
+  variant_prices   variant_prices[]
   roles           roles?            @relation(fields: [role_id], references: [id], onUpdate: NoAction)
   stores          stores?           @relation(fields: [store_id], references: [id], onUpdate: NoAction)
+}
+
+model user_stores {
+  user_id    Int
+  store_id   Int
+  role_id    Int?
+  is_primary Boolean?  @default(false)
+  is_active  Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  users  users  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  stores stores @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles  roles? @relation(fields: [role_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@id([user_id, store_id])
+  @@index([store_id], map: "idx_user_stores_store")
+  @@index([user_id], map: "idx_user_stores_user")
+}
+
+model categories {
+  id         Int         @id @default(autoincrement())
+  code       String      @unique
+  name       String
+  parent_id  Int?
+  is_active  Boolean?    @default(true)
+  created_at DateTime?   @default(now()) @db.Timestamptz(6)
+  updated_at DateTime?   @default(now()) @db.Timestamptz(6)
+
+  parent     categories? @relation("categories_parent", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  children   categories[] @relation("categories_parent")
+  products   products[]
+
+  @@index([parent_id], map: "idx_categories_parent")
+  @@index([name], map: "idx_categories_name")
+}
+
+model brands {
+  id         Int       @id @default(autoincrement())
+  code       String    @unique
+  name       String
+  is_active  Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  products   products[]
+
+  @@index([name], map: "idx_brands_name")
+}
+
+model variant_prices {
+  id         BigInt    @id @default(autoincrement())
+  variant_id Int
+  store_id   Int
+  price      Decimal   @db.Decimal(14, 2)
+  start_at   DateTime  @db.Timestamptz(6)
+  end_at     DateTime? @db.Timestamptz(6)
+  created_by Int?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  stores           stores           @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users            users?           @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([store_id, variant_id], map: "idx_variant_prices_store_variant")
+  @@index([store_id, start_at], map: "idx_variant_prices_store_start")
+  @@unique([store_id, variant_id, start_at])
+}
+
+model purchase_order_receipts {
+  id                Int             @id @default(autoincrement())
+  purchase_order_id Int
+  supplier_id       Int?
+  store_id          Int?
+  receipt_number    String?         @unique
+  supplier_invoice  String?
+  status            String?         @default("received")
+  received_at       DateTime?       @default(now()) @db.Timestamptz(6)
+  note              String?
+  total_cost        Decimal?        @default(0) @db.Decimal(18, 2)
+  created_by        Int?
+  created_at        DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime?       @default(now()) @db.Timestamptz(6)
+
+  purchase_orders   purchase_orders @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  suppliers         suppliers?      @relation(fields: [supplier_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stores            stores?         @relation(fields: [store_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  users             users?          @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  purchase_order_receipt_items purchase_order_receipt_items[]
+
+  @@index([purchase_order_id], map: "idx_po_receipts_purchase_order")
+  @@index([store_id, received_at], map: "idx_po_receipts_store_received_at")
+}
+
+model purchase_order_receipt_items {
+  id                 Int                   @id @default(autoincrement())
+  receipt_id         Int
+  variant_id         Int
+  purchase_item_id   Int?
+  quantity_received  Decimal               @db.Decimal
+  unit_cost          Decimal               @db.Decimal(14, 2)
+  line_total         Decimal?              @db.Decimal(18, 2)
+  lot_code           String?
+  expiry_date        DateTime?             @db.Date
+
+  purchase_order_receipts purchase_order_receipts @relation(fields: [receipt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants        product_variants        @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchase_items          purchase_items?         @relation(fields: [purchase_item_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([receipt_id], map: "idx_po_receipt_items_receipt")
+  @@index([variant_id], map: "idx_po_receipt_items_variant")
+}
+
+model returns {
+  id            Int         @id @default(autoincrement())
+  return_number String?     @unique
+  invoice_id    Int?
+  store_id      Int?
+  customer_id   Int?
+  status        String?     @default("draft")
+  reason        String?
+  note          String?
+  total_refund  Decimal?    @default(0) @db.Decimal(18, 2)
+  created_by    Int?
+  created_at    DateTime?   @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?   @default(now()) @db.Timestamptz(6)
+
+  invoices      invoices?   @relation(fields: [invoice_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stores        stores?     @relation(fields: [store_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  customers     customers?  @relation(fields: [customer_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  users         users?      @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  return_items  return_items[]
+
+  @@index([store_id, created_at], map: "idx_returns_store_created_at")
+  @@index([invoice_id], map: "idx_returns_invoice")
+}
+
+model return_items {
+  id              Int               @id @default(autoincrement())
+  return_id       Int
+  invoice_item_id Int?
+  variant_id      Int
+  quantity        Decimal           @db.Decimal
+  unit_price      Decimal?          @db.Decimal(14, 2)
+  refund_amount   Decimal?          @db.Decimal(18, 2)
+  reason          String?
+
+  returns         returns           @relation(fields: [return_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  invoice_items   invoice_items?    @relation(fields: [invoice_item_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([return_id], map: "idx_return_items_return")
+  @@index([variant_id], map: "idx_return_items_variant")
+}
+
+model pos_shifts {
+  id            Int       @id @default(autoincrement())
+  store_id      Int
+  status        String?   @default("open")
+  opened_by     Int
+  opened_at     DateTime  @default(now()) @db.Timestamptz(6)
+  opening_cash  Decimal?  @default(0) @db.Decimal(14, 2)
+  closed_by     Int?
+  closed_at     DateTime? @db.Timestamptz(6)
+  closing_cash  Decimal?  @db.Decimal(14, 2)
+  note          String?
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  stores        stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  opened_user   users     @relation("pos_shifts_opened", fields: [opened_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  closed_user   users?    @relation("pos_shifts_closed", fields: [closed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cash_movements cash_movements[]
+
+  @@index([store_id, opened_at], map: "idx_pos_shifts_store_opened_at")
+  @@index([status], map: "idx_pos_shifts_status")
+}
+
+model cash_movements {
+  id          BigInt    @id @default(autoincrement())
+  store_id    Int
+  shift_id    Int?
+  type        String
+  amount      Decimal   @db.Decimal(14, 2)
+  reason      String?
+  created_by  Int?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  stores      stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pos_shifts  pos_shifts? @relation(fields: [shift_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  users       users?    @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([store_id, created_at], map: "idx_cash_movements_store_created_at")
+  @@index([shift_id], map: "idx_cash_movements_shift")
 }

@@ -1,16 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 
-// Mở rộng type Request để TypeScript không báo lỗi
-// (User đã được decode từ auth.middleware)
-interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    email: string;
-    role: string;
-    storeId?: string | null;
-  };
-}
-
 /**
  * Middleware kiểm tra Role.
  * Sử dụng sau authenticateToken.
@@ -18,16 +7,16 @@ interface AuthRequest extends Request {
  */
 export const authorizeRoles = (allowedRoles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const authReq = req as AuthRequest;
-
-    if (!authReq.user) {
+    if (!req.user || typeof req.user === 'string') {
       return res.status(401).json({ message: 'Unauthorized: User not identified' });
     }
 
     // Role của user hiện tại (lấy từ JWT payload)
-    const userRole = authReq.user.role;
+    const userRole = req.user.role;
+    const normUserRole = userRole ? String(userRole).toLowerCase() : '';
+    const normAllowed = allowedRoles.map((r) => String(r).toLowerCase());
 
-    if (!userRole || !allowedRoles.includes(userRole)) {
+    if (!normUserRole || !normAllowed.includes(normUserRole)) {
       return res.status(403).json({ 
         message: `Forbidden: You do not have permission. Required: ${allowedRoles.join(' or ')}` 
       });
