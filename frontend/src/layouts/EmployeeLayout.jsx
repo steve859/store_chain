@@ -11,6 +11,7 @@ import PurchaseOrders from '../pages/PurchaseOrders';
 import InventoryAdjustment from '../pages/InventoryAdjustment';
 import Promotions from '../pages/Promotions';
 import Return from '../pages/POS/Return';
+import StoreSwitcher from '../components/StoreSwitcher';
 
 const EmployeeLayout = () => {
     const [currentView, setCurrentView] = useState("dashboard");
@@ -22,6 +23,9 @@ const EmployeeLayout = () => {
             localStorage.removeItem('isAuthenticated');
             localStorage.removeItem('userRole');
             localStorage.removeItem('userEmail');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('activeStoreId');
             navigate('/');
         }
     };
@@ -100,7 +104,10 @@ const EmployeeLayout = () => {
 
             {/* --- MAIN CONTENT --- */}
             <main className="flex-1 overflow-x-auto overflow-y-auto">
-                <header className='h-16 flex items-center px-6 border-b border-gray-300'></header>
+                <header className='h-16 flex items-center justify-between px-6 border-b border-gray-300 bg-white'>
+                    <StoreSwitcher className="flex items-center" />
+                    <div className="text-sm text-gray-600">{localStorage.getItem('userEmail') || ''}</div>
+                </header>
                 <div className='p-8'>
                     <CurrentComponent />
                 </div>

@@ -1,10 +1,9 @@
 import axiosClient from "./axiosClient";
 
 export async function listSalesOrders({ q = "", storeCode = "", take = 50, skip = 0 } = {}) {
-  const res = await axiosClient.get("/sales", {
+  const res = await axiosClient.get("/invoices", {
     params: {
       q: q || undefined,
-      storeCode: storeCode || undefined,
       take,
       skip,
     },
@@ -13,6 +12,6 @@ export async function listSalesOrders({ q = "", storeCode = "", take = 50, skip 
 }
 
 export async function getSalesOrder(id) {
-  const res = await axiosClient.get(`/sales/${id}`);
+  const res = await axiosClient.get(`/invoices/${id}`);
   return res.data;
 }

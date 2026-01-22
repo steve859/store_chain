@@ -1,8 +1,24 @@
 import { Router } from 'express';
 import { Prisma } from '../../generated/prisma';
 import prisma from '../../db/prisma';
+import { authenticateToken } from '../../middlewares/auth.middleware';
 
 const router = Router();
+
+router.use(authenticateToken);
+
+// Legacy UUID-based sales module (skus/inventory_levels/pos_sales).
+// The main app has migrated to numeric store_id + invoices; keep this for admin-only access.
+router.use((req, res, next) => {
+  const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+  const isAdmin = role.toLowerCase() === 'admin';
+  if (!isAdmin) {
+    return res.status(410).json({
+      error: 'Legacy sales module is deprecated. Use /pos and /invoices endpoints instead.',
+    });
+  }
+  next();
+});
 
 const toLike = (q: string) => `%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 

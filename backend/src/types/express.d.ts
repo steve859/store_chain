@@ -1,9 +1,12 @@
 import { JwtPayload } from 'jsonwebtoken';
+import type { AuthUserPayload } from './auth';
 
 declare global {
   namespace Express {
     interface Request {
-      user?: string | JwtPayload; // Hoặc định nghĩa interface User cụ thể
+      user?: string | AuthUserPayload;
+      activeStoreId?: number | null;
     }
   }
 }
+

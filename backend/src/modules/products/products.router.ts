@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '../../generated/prisma';
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
+import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
+
+router.use(authenticateToken);
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -18,6 +23,12 @@ const toDecimal = (value: unknown): Prisma.Decimal => {
 const toDecimalOptional = (value: unknown): Prisma.Decimal | null => {
   if (value === null || value === undefined || value === '') return null;
   return toDecimal(value);
+};
+
+const parseDateOptional = (value: unknown): Date | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const d = new Date(String(value));
+  return Number.isFinite(d.getTime()) ? d : null;
 };
 
 /**
@@ -60,18 +71,18 @@ router.get('/', async (req, res, next) => {
 
 /**
  * UC-M1: Store catalog view (variants + product + store inventory)
- * GET /api/v1/products/catalog?storeId=1&q=milk&barcode=...&take=50&skip=0
+ * GET /api/v1/products/catalog?q=milk&barcode=...&take=50&skip=0
  */
-router.get('/catalog', async (req, res, next) => {
+router.get('/catalog', requireActiveStore, async (req, res, next) => {
   try {
-    const storeId = req.query.storeId ? Number(req.query.storeId) : NaN;
+    const storeId = Number(req.activeStoreId);
     const q = String(req.query.q ?? '').trim();
     const barcode = String(req.query.barcode ?? '').trim();
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
 
     if (!Number.isFinite(storeId)) {
-      return res.status(400).json({ error: 'storeId query param is required' });
+      return res.status(400).json({ error: 'Active store is required' });
     }
 
     const where: Prisma.product_variantsWhereInput = {
@@ -104,13 +115,177 @@ router.get('/catalog', async (req, res, next) => {
       prisma.product_variants.count({ where }),
     ]);
 
-    const items = variants.map((variant) => ({
-      variant,
-      product: variant.products,
-      inventory: variant.inventories[0] ?? null,
-    }));
+    const now = new Date();
+    const variantIds = variants.map((v) => v.id);
+    const priceRows = await prisma.variant_prices.findMany({
+      where: {
+        store_id: storeId,
+        variant_id: { in: variantIds },
+        start_at: { lte: now },
+        OR: [{ end_at: null }, { end_at: { gt: now } }],
+      },
+      orderBy: { start_at: 'desc' },
+      distinct: ['variant_id'],
+    });
+    const priceByVariantId = new Map<number, unknown>(priceRows.map((p) => [p.variant_id, p.price]));
+
+    const items = variants.map((variant) => {
+      const override = priceByVariantId.get(variant.id);
+      const effectivePrice = override ?? variant.price;
+      return {
+        variant: { ...variant, price: effectivePrice },
+        product: variant.products,
+        inventory: variant.inventories[0] ?? null,
+      };
+    });
 
     return res.json({ items, total, take, skip });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * UC-M3: Variant price history for active store
+ * GET /api/v1/products/variant-prices?variantId=123&take=50&skip=0
+ */
+router.get('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+  try {
+    const storeId = Number(req.activeStoreId);
+    const variantId = req.query.variantId !== undefined ? Number(req.query.variantId) : null;
+    const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
+    const skip = req.query.skip ? Number(req.query.skip) : 0;
+
+    if (!Number.isFinite(storeId) || !variantId || !Number.isFinite(variantId)) {
+      return res.status(400).json({ error: 'store and variantId are required' });
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.variant_prices.findMany({
+        where: { store_id: storeId, variant_id: variantId },
+        include: { users: true },
+        orderBy: { start_at: 'desc' },
+        take,
+        skip,
+      }),
+      prisma.variant_prices.count({ where: { store_id: storeId, variant_id: variantId } }),
+    ]);
+
+    return res.json({ items, total, take, skip });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * UC-M3: Set new effective price for a variant in active store
+ * POST /api/v1/products/variant-prices
+ * Body: { variantId: number, price: number, startAt?: ISOString }
+ */
+router.post('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+  try {
+    const storeId = Number(req.activeStoreId);
+    const userId = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
+
+    const variantId = Number(req.body?.variantId);
+    const price = toDecimal(req.body?.price);
+    const startAt = parseDateOptional(req.body?.startAt) ?? new Date();
+
+    if (!Number.isFinite(storeId) || !Number.isFinite(variantId)) {
+      return res.status(400).json({ error: 'variantId is required' });
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const variant = await tx.product_variants.findUnique({ where: { id: variantId } });
+      if (!variant) throw new Error('Variant not found');
+
+      // Disallow conflicts with any future window starting at/after startAt
+      const future = await tx.variant_prices.findFirst({
+        where: {
+          store_id: storeId,
+          variant_id: variantId,
+          start_at: { gte: startAt },
+          OR: [{ end_at: null }, { end_at: { gt: startAt } }],
+        },
+        orderBy: { start_at: 'asc' },
+      });
+      if (future) {
+        throw new Error('Conflicting future price exists. Close or delete it first.');
+      }
+
+      // Close any currently open window
+      await tx.variant_prices.updateMany({
+        where: {
+          store_id: storeId,
+          variant_id: variantId,
+          end_at: null,
+          start_at: { lt: startAt },
+        },
+        data: { end_at: startAt },
+      });
+
+      return tx.variant_prices.create({
+        data: {
+          store_id: storeId,
+          variant_id: variantId,
+          price,
+          start_at: startAt,
+          end_at: null,
+          created_by: Number.isFinite(userId) ? userId : null,
+        },
+      });
+    });
+
+    return res.status(201).json({ price: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * UC-M3: Close the current effective price window
+ * POST /api/v1/products/variant-prices/close
+ * Body: { variantId: number, endAt?: ISOString }
+ */
+router.post('/variant-prices/close', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+  try {
+    const storeId = Number(req.activeStoreId);
+    const userId = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
+
+    const variantId = Number(req.body?.variantId);
+    const endAt = parseDateOptional(req.body?.endAt) ?? new Date();
+
+    if (!Number.isFinite(storeId) || !Number.isFinite(variantId)) {
+      return res.status(400).json({ error: 'variantId is required' });
+    }
+
+    const closed = await prisma.$transaction(async (tx) => {
+      const current = await tx.variant_prices.findFirst({
+        where: {
+          store_id: storeId,
+          variant_id: variantId,
+          end_at: null,
+          start_at: { lte: endAt },
+        },
+        orderBy: { start_at: 'desc' },
+      });
+
+      if (!current) {
+        throw new Error('No active price window to close');
+      }
+      if (current.start_at >= endAt) {
+        throw new Error('endAt must be after startAt');
+      }
+
+      const updated = await tx.variant_prices.update({
+        where: { id: current.id },
+        data: { end_at: endAt, created_by: Number.isFinite(userId) ? userId : current.created_by },
+      });
+
+      return updated;
+    });
+
+    return res.json({ price: closed });
   } catch (err) {
     next(err);
   }

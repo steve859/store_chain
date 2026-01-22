@@ -7,6 +7,7 @@ import Products from '../pages/Products';
 import Complaints from '../pages/Complaints';
 import POS from '../pages/POS';
 import { ShiftProvider, ShiftStatusBar, useShift } from '../components/shift/ShiftManager';
+import StoreSwitcher from '../components/StoreSwitcher';
 
 // Inner layout that uses shift context
 const CashierLayoutInner = () => {
@@ -27,6 +28,9 @@ const CashierLayoutInner = () => {
             localStorage.removeItem('isAuthenticated');
             localStorage.removeItem('userRole');
             localStorage.removeItem('userEmail');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('activeStoreId');
             navigate('/');
         }
     };
@@ -105,6 +109,7 @@ const CashierLayoutInner = () => {
                         <h2 className="font-semibold text-gray-700">
                             {menuItems.find(item => item.id === currentView)?.name || 'Dashboard'}
                         </h2>
+                        <StoreSwitcher className="flex items-center" />
                     </div>
                     <ShiftStatusBar />
                 </header>

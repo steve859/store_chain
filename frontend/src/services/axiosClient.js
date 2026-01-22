@@ -22,6 +22,11 @@ axiosClient.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  const activeStoreId = localStorage.getItem('activeStoreId');
+  if (activeStoreId) {
+    config.headers['x-store-id'] = activeStoreId;
+  }
   return config;
 });
 

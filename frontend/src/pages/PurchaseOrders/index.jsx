@@ -73,6 +73,12 @@ const PurchaseOrders = () => {
 
     // Receive form state
     const [receiveData, setReceiveData] = useState([]);
+    const [receiveMeta, setReceiveMeta] = useState({
+        referenceId: "",
+        supplierInvoice: "",
+        note: "",
+        reason: "Nhập kho (GRN)",
+    });
 
     const suppliersById = useMemo(() => {
         const map = new Map();
@@ -260,8 +266,13 @@ const PurchaseOrders = () => {
         }
 
         try {
+            const selectedStoreId = formData.store ? Number(formData.store) : null;
+            const activeStoreId = localStorage.getItem("activeStoreId") ? Number(localStorage.getItem("activeStoreId")) : null;
+            if (Number.isFinite(selectedStoreId) && Number.isFinite(activeStoreId) && selectedStoreId !== activeStoreId) {
+                localStorage.setItem("activeStoreId", String(selectedStoreId));
+            }
+
             const payload = {
-                storeId: Number(formData.store),
                 supplierId: formData.supplier ? Number(formData.supplier) : undefined,
                 items: formData.items.map((item) => ({
                     variantId: Number(item.variantId),
@@ -296,14 +307,46 @@ const PurchaseOrders = () => {
             const variant = it.product_variants;
             const product = variant?.products;
             const displayName = [product?.name, variant?.name].filter(Boolean).join(" - ");
+            const orderedQty = toNumber(it.quantity, 0);
+            const receivedQty = toNumber(it.received_quantity, 0);
             return {
                 variantId: variant?.id,
                 sku: product?.sku || variant?.variant_code || "",
                 name: displayName || "(Không rõ)",
-                quantity: toNumber(it.quantity, 0),
+                quantity: orderedQty,
                 cost: toNumber(it.unit_cost, 0),
-                receivedQty: order.status === "received" ? toNumber(it.quantity, 0) : 0,
-                actualCost: order.status === "received" ? toNumber(it.unit_cost, 0) : 0,
+                receivedQty,
+                actualCost: toNumber(it.unit_cost, 0),
+            };
+        });
+
+        const receiptsRaw = Array.isArray(order.purchase_order_receipts) ? order.purchase_order_receipts : [];
+        const receipts = receiptsRaw.map((r) => {
+            const receiptItemsRaw = Array.isArray(r.purchase_order_receipt_items) ? r.purchase_order_receipt_items : [];
+            const receiptItems = receiptItemsRaw.map((ri) => {
+                const v = ri.product_variants;
+                const p = v?.products;
+                const displayName = [p?.name, v?.name].filter(Boolean).join(" - ");
+                return {
+                    variantId: v?.id,
+                    sku: p?.sku || v?.variant_code || "",
+                    name: displayName || "(Không rõ)",
+                    qty: toNumber(ri.quantity_received, 0),
+                    unitCost: toNumber(ri.unit_cost, 0),
+                    lineTotal: toNumber(ri.line_total, 0),
+                    lotCode: ri.lot_code || "",
+                    expiryDate: toDateOnly(ri.expiry_date),
+                };
+            });
+
+            return {
+                id: r.id,
+                receiptNumber: r.receipt_number || "",
+                receivedAt: toDateOnly(r.received_at),
+                supplierInvoice: r.supplier_invoice || "",
+                note: r.note || "",
+                totalCost: toNumber(r.total_cost, 0),
+                items: receiptItems,
             };
         });
 
@@ -319,6 +362,7 @@ const PurchaseOrders = () => {
             note: "",
             supplierName: order.suppliers?.name,
             storeName: order.stores?.name,
+            receipts,
         };
     };
 
@@ -339,11 +383,21 @@ const PurchaseOrders = () => {
         try {
             const detailed = await loadOrderDetails(po.id);
             setSelectedPO(detailed);
+            setReceiveMeta({
+                referenceId: "",
+                supplierInvoice: "",
+                note: "",
+                reason: "Nhập kho (GRN)",
+            });
             setReceiveData(
                 detailed.items.map((item) => ({
                     ...item,
-                    receivedQty: String(item.quantity ?? 0),
+                    alreadyReceivedQty: toNumber(item.receivedQty, 0),
+                    remainingQty: Math.max(0, toNumber(item.quantity, 0) - toNumber(item.receivedQty, 0)),
+                    receivedQty: String(Math.max(0, toNumber(item.quantity, 0) - toNumber(item.receivedQty, 0))),
                     actualCost: String(item.cost ?? 0),
+                    lotCode: "",
+                    expiryDate: "",
                 }))
             );
             setIsReceiveModalOpen(true);
@@ -357,19 +411,32 @@ const PurchaseOrders = () => {
     const handleReceiveGoods = async (e) => {
         e.preventDefault();
         try {
-            await receivePurchaseOrder(selectedPO.id, {
+            const payload = {
+                ...(receiveMeta.referenceId?.trim() ? { referenceId: receiveMeta.referenceId.trim() } : {}),
+                ...(receiveMeta.supplierInvoice?.trim() ? { supplierInvoice: receiveMeta.supplierInvoice.trim() } : {}),
+                ...(receiveMeta.note?.trim() ? { note: receiveMeta.note.trim() } : {}),
+                ...(receiveMeta.reason?.trim() ? { reason: receiveMeta.reason.trim() } : {}),
                 items: receiveData
                     .map((it) => ({
                         variantId: Number(it.variantId),
                         receivedQty: Number(it.receivedQty),
                         unitCost: Number(it.actualCost),
+                        ...(String(it.lotCode || "").trim() ? { lotCode: String(it.lotCode).trim() } : {}),
+                        ...(String(it.expiryDate || "").trim() ? { expiryDate: String(it.expiryDate).trim() } : {}),
                     }))
                     .filter((it) => Number.isFinite(it.variantId) && Number.isFinite(it.receivedQty) && it.receivedQty > 0),
-            });
+            };
+
+            const res = await receivePurchaseOrder(selectedPO.id, payload);
 
             setIsReceiveModalOpen(false);
             setSelectedPO(null);
             await refreshOrders();
+
+            const receiptNo = res?.receipt?.receipt_number || res?.receipt?.receiptNumber;
+            if (receiptNo) {
+                alert(`Nhập kho thành công. Phiếu: ${receiptNo}`);
+            }
         } catch (err) {
             console.error(err);
             alert("Nhập kho thất bại. Vui lòng thử lại.");
@@ -704,12 +771,8 @@ const PurchaseOrders = () => {
                                         <th className="text-left p-2">Tên SP</th>
                                         <th className="text-right p-2">SL đặt</th>
                                         <th className="text-right p-2">Giá vốn</th>
-                                        {selectedPO.status === "received" && (
-                                            <>
-                                                <th className="text-right p-2">SL nhận</th>
-                                                <th className="text-right p-2">Giá thực</th>
-                                            </>
-                                        )}
+                                        <th className="text-right p-2">SL đã nhận</th>
+                                        <th className="text-right p-2">Còn lại</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
@@ -719,17 +782,72 @@ const PurchaseOrders = () => {
                                             <td className="p-2">{item.name}</td>
                                             <td className="p-2 text-right">{item.quantity}</td>
                                             <td className="p-2 text-right">{formatCurrency(item.cost)}</td>
-                                            {selectedPO.status === "received" && (
-                                                <>
-                                                    <td className="p-2 text-right text-green-600">{item.receivedQty}</td>
-                                                    <td className="p-2 text-right">{formatCurrency(item.actualCost)}</td>
-                                                </>
-                                            )}
+                                            <td className="p-2 text-right text-green-600">{toNumber(item.receivedQty, 0)}</td>
+                                            <td className="p-2 text-right">{Math.max(0, toNumber(item.quantity, 0) - toNumber(item.receivedQty, 0))}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
+
+                        {Array.isArray(selectedPO.receipts) && selectedPO.receipts.length > 0 && (
+                            <div className="border-t pt-4 space-y-3">
+                                <h4 className="font-medium">Lịch sử nhập kho (GRN)</h4>
+                                <div className="space-y-3">
+                                    {selectedPO.receipts.map((r) => (
+                                        <div key={r.id} className="p-3 rounded-lg border bg-white">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                                                <div className="font-medium">{r.receiptNumber || "(Không rõ mã phiếu)"}</div>
+                                                <div className="text-gray-600">{r.receivedAt}</div>
+                                            </div>
+
+                                            {(r.supplierInvoice || r.note) && (
+                                                <div className="mt-2 text-sm text-gray-700 space-y-1">
+                                                    {r.supplierInvoice && <div>HĐ NCC: {r.supplierInvoice}</div>}
+                                                    {r.note && <div>Ghi chú: {r.note}</div>}
+                                                </div>
+                                            )}
+
+                                            <div className="mt-2 text-sm">
+                                                <div className="font-medium">Tổng chi phí: {formatCurrency(r.totalCost)}</div>
+                                            </div>
+
+                                            {Array.isArray(r.items) && r.items.length > 0 && (
+                                                <div className="mt-3 overflow-x-auto">
+                                                    <table className="w-full text-sm">
+                                                        <thead className="bg-gray-50">
+                                                            <tr>
+                                                                <th className="text-left p-2">Sản phẩm</th>
+                                                                <th className="text-right p-2">SL</th>
+                                                                <th className="text-right p-2">Giá</th>
+                                                                <th className="text-right p-2">Thành tiền</th>
+                                                                <th className="text-left p-2">Lô</th>
+                                                                <th className="text-left p-2">HSD</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y">
+                                                            {r.items.map((it, idx) => (
+                                                                <tr key={idx}>
+                                                                    <td className="p-2">
+                                                                        <div className="font-medium">{it.name}</div>
+                                                                        <div className="text-xs text-gray-500">{it.sku}</div>
+                                                                    </td>
+                                                                    <td className="p-2 text-right">{it.qty}</td>
+                                                                    <td className="p-2 text-right">{formatCurrency(it.unitCost)}</td>
+                                                                    <td className="p-2 text-right">{formatCurrency(it.lineTotal)}</td>
+                                                                    <td className="p-2">{it.lotCode || ""}</td>
+                                                                    <td className="p-2">{it.expiryDate || ""}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="flex justify-between items-center pt-4 border-t">
                             <span className="font-medium">Tổng tiền:</span>
@@ -754,13 +872,56 @@ const PurchaseOrders = () => {
                             <p className="text-sm text-blue-800">Nhập số lượng và giá thực tế nhận được</p>
                         </div>
 
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Mã phiếu (referenceId)</label>
+                                <input
+                                    value={receiveMeta.referenceId}
+                                    onChange={(e) => setReceiveMeta({ ...receiveMeta, referenceId: e.target.value })}
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    placeholder="Để trống = tự sinh GRN-..."
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Số HĐ NCC</label>
+                                <input
+                                    value={receiveMeta.supplierInvoice}
+                                    onChange={(e) => setReceiveMeta({ ...receiveMeta, supplierInvoice: e.target.value })}
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    placeholder="VD: INV-2026-001"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Lý do</label>
+                                <input
+                                    value={receiveMeta.reason}
+                                    onChange={(e) => setReceiveMeta({ ...receiveMeta, reason: e.target.value })}
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    placeholder="VD: Receive purchase order"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Ghi chú</label>
+                                <input
+                                    value={receiveMeta.note}
+                                    onChange={(e) => setReceiveMeta({ ...receiveMeta, note: e.target.value })}
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    placeholder="Ghi chú phiếu nhập"
+                                />
+                            </div>
+                        </div>
+
                         <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th className="text-left p-2">Sản phẩm</th>
                                     <th className="text-right p-2">SL đặt</th>
+                                    <th className="text-right p-2">Đã nhận</th>
+                                    <th className="text-right p-2">Còn lại</th>
                                     <th className="text-right p-2">SL nhận</th>
                                     <th className="text-right p-2">Giá thực tế</th>
+                                    <th className="text-left p-2">Mã lô</th>
+                                    <th className="text-left p-2">HSD</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -771,6 +932,8 @@ const PurchaseOrders = () => {
                                             <p className="text-xs text-gray-500">{item.sku}</p>
                                         </td>
                                         <td className="p-2 text-right text-gray-600">{item.quantity}</td>
+                                        <td className="p-2 text-right text-gray-600">{toNumber(item.alreadyReceivedQty, 0)}</td>
+                                        <td className="p-2 text-right text-gray-600">{toNumber(item.remainingQty, 0)}</td>
                                         <td className="p-2">
                                             <input
                                                 type="number"
@@ -782,7 +945,7 @@ const PurchaseOrders = () => {
                                                 }}
                                                 className="w-full rounded-md border px-2 py-1 text-sm text-right"
                                                 min="0"
-                                                max={toNumber(item.quantity, 0)}
+                                                max={toNumber(item.remainingQty, 0)}
                                             />
                                         </td>
                                         <td className="p-2">
@@ -796,6 +959,30 @@ const PurchaseOrders = () => {
                                                 }}
                                                 className="w-full rounded-md border px-2 py-1 text-sm text-right"
                                                 min="0"
+                                            />
+                                        </td>
+                                        <td className="p-2">
+                                            <input
+                                                value={item.lotCode}
+                                                onChange={(e) => {
+                                                    const newData = [...receiveData];
+                                                    newData[index].lotCode = e.target.value;
+                                                    setReceiveData(newData);
+                                                }}
+                                                className="w-full rounded-md border px-2 py-1 text-sm"
+                                                placeholder="VD: LOT-001"
+                                            />
+                                        </td>
+                                        <td className="p-2">
+                                            <input
+                                                type="date"
+                                                value={item.expiryDate}
+                                                onChange={(e) => {
+                                                    const newData = [...receiveData];
+                                                    newData[index].expiryDate = e.target.value;
+                                                    setReceiveData(newData);
+                                                }}
+                                                className="w-full rounded-md border px-2 py-1 text-sm"
                                             />
                                         </td>
                                     </tr>

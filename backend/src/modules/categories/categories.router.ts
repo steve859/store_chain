@@ -3,16 +3,6 @@ import * as categoryService from './categories.service';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
-// Define AuthRequest interface
-interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    email: string;
-    role: string;
-    storeId?: string | null;
-  };
-}
-
 const router = Router();
 
 // Public hoặc Authenticated user đều xem được danh mục (để load dropdown)
@@ -40,10 +30,9 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response, next: 
 // Chỉ Admin/Manager mới được Tạo/Sửa/Xóa danh mục
 router.post('/', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const authReq = req as AuthRequest;
-    if (!authReq.user) return res.status(401).json({ message: 'User context missing' });
+    if (!req.user || typeof req.user === 'string') return res.status(401).json({ message: 'User context missing' });
 
-    const result = await categoryService.createCategory(req.body, authReq.user.userId);
+    const result = await categoryService.createCategory(req.body, String(req.user.userId));
     res.status(201).json(result);
   } catch (error) {
     next(error);
@@ -52,10 +41,9 @@ router.post('/', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER']), 
 
 router.put('/:id', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const authReq = req as AuthRequest;
-    if (!authReq.user) return res.status(401).json({ message: 'User context missing' });
+    if (!req.user || typeof req.user === 'string') return res.status(401).json({ message: 'User context missing' });
 
-    const result = await categoryService.updateCategory(req.params.id, req.body, authReq.user.userId);
+    const result = await categoryService.updateCategory(req.params.id, req.body, String(req.user.userId));
     res.json(result);
   } catch (error) {
     next(error);
@@ -64,10 +52,9 @@ router.put('/:id', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER'])
 
 router.delete('/:id', authenticateToken, authorizeRoles(['ADMIN']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const authReq = req as AuthRequest;
-    if (!authReq.user) return res.status(401).json({ message: 'User context missing' });
+    if (!req.user || typeof req.user === 'string') return res.status(401).json({ message: 'User context missing' });
 
-    await categoryService.deleteCategory(req.params.id, authReq.user.userId);
+    await categoryService.deleteCategory(req.params.id, String(req.user.userId));
     res.json({ message: 'Category deleted successfully' });
   } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('Cannot delete category')) {

@@ -11,6 +11,8 @@ import {
     createVariant,
     listProducts,
     listProductsCatalog,
+    listVariantPrices,
+    setVariantPrice,
     updateProduct,
     updateVariant as updateVariantApi,
 } from "../../services/products";
@@ -83,14 +85,20 @@ export default function Products() {
     const [filters, setFilters] = useState({ category: "", brand: "", status: "" });
     const [showFilters, setShowFilters] = useState(false);
 
-    const storeId = useMemo(() => getDefaultStoreId(), []);
-
     // Modal states
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [formErrors, setFormErrors] = useState({});
+
+    // Store-specific pricing
+    const [isStorePriceModalOpen, setIsStorePriceModalOpen] = useState(false);
+    const [storePriceVariant, setStorePriceVariant] = useState(null);
+    const [storePriceHistory, setStorePriceHistory] = useState([]);
+    const [storePriceLoading, setStorePriceLoading] = useState(false);
+    const [storePriceError, setStorePriceError] = useState("");
+    const [storePriceValue, setStorePriceValue] = useState("");
 
     // Form state
     const [formData, setFormData] = useState({
@@ -110,7 +118,7 @@ export default function Products() {
 
             const [productsResult, catalogResult] = await Promise.allSettled([
                 listProducts({ take: 200, skip: 0 }),
-                listProductsCatalog({ storeId, take: 200, skip: 0 }),
+                listProductsCatalog({ take: 200, skip: 0 }),
             ]);
 
             const productsRes = productsResult.status === "fulfilled" ? productsResult.value : null;
@@ -143,6 +151,46 @@ export default function Products() {
         fetchProducts();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    const openStorePriceModal = async (variant) => {
+        if (!variant?.variantId) return;
+        setIsStorePriceModalOpen(true);
+        setStorePriceVariant(variant);
+        setStorePriceValue(String(variant.price ?? ""));
+        setStorePriceError("");
+        setStorePriceLoading(true);
+        try {
+            const res = await listVariantPrices({ variantId: variant.variantId, take: 50, skip: 0 });
+            setStorePriceHistory(res.items ?? []);
+        } catch (e) {
+            setStorePriceHistory([]);
+            setStorePriceError(e?.response?.data?.error || e?.response?.data?.message || e.message || "Không tải được lịch sử giá");
+        } finally {
+            setStorePriceLoading(false);
+        }
+    };
+
+    const submitStorePrice = async () => {
+        if (!storePriceVariant?.variantId) return;
+        const priceNum = Number(storePriceValue);
+        if (!Number.isFinite(priceNum) || priceNum <= 0) {
+            setStorePriceError("Giá phải > 0");
+            return;
+        }
+
+        setStorePriceError("");
+        setStorePriceLoading(true);
+        try {
+            await setVariantPrice({ variantId: storePriceVariant.variantId, price: priceNum });
+            const res = await listVariantPrices({ variantId: storePriceVariant.variantId, take: 50, skip: 0 });
+            setStorePriceHistory(res.items ?? []);
+            await fetchProducts();
+        } catch (e) {
+            setStorePriceError(e?.response?.data?.error || e?.response?.data?.message || e.message || "Không đặt được giá");
+        } finally {
+            setStorePriceLoading(false);
+        }
+    };
 
     // Filter products (client-side)
     const filteredProducts = products.filter((product) => {
@@ -540,15 +588,26 @@ export default function Products() {
                         <div key={index} className="border rounded-lg p-3 bg-gray-50">
                             <div className="flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium text-gray-600">Biến thể #{index + 1}</span>
-                                {formData.variants.length > 1 && (
-                                    <button
-                                        type="button"
-                                        onClick={() => removeVariant(index)}
-                                        className="text-red-500 text-sm hover:underline"
-                                    >
-                                        Xóa
-                                    </button>
-                                )}
+                                <div className="flex items-center gap-3">
+                                    {variant.variantId ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => openStorePriceModal(variant)}
+                                            className="text-blue-600 text-sm hover:underline"
+                                        >
+                                            Giá cửa hàng
+                                        </button>
+                                    ) : null}
+                                    {formData.variants.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeVariant(index)}
+                                            className="text-red-500 text-sm hover:underline"
+                                        >
+                                            Xóa
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -903,6 +962,79 @@ export default function Products() {
                         <Button onClick={handleDeleteProduct} className="bg-red-600 hover:bg-red-700 text-white">
                             Ngừng bán
                         </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Store Price Modal */}
+            <Modal
+                isOpen={isStorePriceModalOpen}
+                onClose={() => {
+                    setIsStorePriceModalOpen(false);
+                    setStorePriceVariant(null);
+                    setStorePriceHistory([]);
+                    setStorePriceError("");
+                    setStorePriceValue("");
+                }}
+                title="Giá theo cửa hàng"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <div className="text-sm text-gray-600">Biến thể</div>
+                        <div className="font-medium">{storePriceVariant?.code || storePriceVariant?.barcode || `#${storePriceVariant?.variantId || ""}`}</div>
+                    </div>
+
+                    {storePriceError ? (
+                        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{storePriceError}</div>
+                    ) : null}
+
+                    <div className="grid grid-cols-2 gap-3 items-end">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Giá bán (cửa hàng hiện tại)</label>
+                            <input
+                                type="number"
+                                value={storePriceValue}
+                                onChange={(e) => setStorePriceValue(e.target.value)}
+                                className="w-full rounded-md border px-3 py-2 text-sm"
+                                min="0"
+                            />
+                        </div>
+                        <div className="flex justify-end">
+                            <Button onClick={submitStorePrice} disabled={storePriceLoading}>
+                                {storePriceLoading ? "Đang lưu..." : "Lưu giá"}
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div className="border rounded-md overflow-hidden">
+                        <div className="bg-gray-50 px-3 py-2 text-sm font-medium">Lịch sử giá</div>
+                        <div className="max-h-64 overflow-auto">
+                            <table className="w-full text-sm">
+                                <thead className="bg-gray-50 border-b">
+                                    <tr>
+                                        <th className="text-left p-3">Bắt đầu</th>
+                                        <th className="text-left p-3">Kết thúc</th>
+                                        <th className="text-right p-3">Giá</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {(storePriceHistory ?? []).map((row) => (
+                                        <tr key={String(row.id)}>
+                                            <td className="p-3 text-gray-700">{row.start_at ? new Date(row.start_at).toLocaleString("vi-VN") : ""}</td>
+                                            <td className="p-3 text-gray-700">{row.end_at ? new Date(row.end_at).toLocaleString("vi-VN") : "(đang áp dụng)"}</td>
+                                            <td className="p-3 text-right font-medium text-blue-700">{Number(row.price || 0).toLocaleString("vi-VN")}đ</td>
+                                        </tr>
+                                    ))}
+                                    {!storePriceLoading && (storePriceHistory?.length ?? 0) === 0 ? (
+                                        <tr>
+                                            <td colSpan={3} className="p-4 text-center text-gray-500">
+                                                Chưa có giá theo cửa hàng
+                                            </td>
+                                        </tr>
+                                    ) : null}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </Modal>

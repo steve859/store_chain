@@ -1,9 +1,24 @@
 import { Router } from 'express';
 import { UserService } from './users.service';
+import prisma from '../../db/prisma';
 
 const router = Router();
 
-// GET /api/users
+// GET /api/v1/users/meta
+router.get('/meta', async (_req, res) => {
+  try {
+    const [roles, stores] = await Promise.all([
+      prisma.roles.findMany({ orderBy: { id: 'asc' } }),
+      prisma.stores.findMany({ where: { is_active: true }, orderBy: { id: 'asc' } }),
+    ]);
+
+    res.json({ roles, stores });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// GET /api/v1/users
 router.get('/', async (req, res) => {
   try {
     const users = await UserService.getAllUsers();
@@ -13,7 +28,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/users/:id
+// GET /api/v1/users/:id
 router.get('/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -24,7 +39,35 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/users
+// GET /api/v1/users/:id/stores
+router.get('/:id/stores', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const stores = await UserService.getUserStores(id);
+    res.json({ stores });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// PUT /api/v1/users/:id/stores
+router.put('/:id/stores', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { storeIds, primaryStoreId } = req.body ?? {};
+
+    if (!Array.isArray(storeIds)) {
+      return res.status(400).json({ error: 'storeIds must be an array of numbers' });
+    }
+
+    const updated = await UserService.setUserStores(id, { storeIds, primaryStoreId });
+    res.json({ stores: updated });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// POST /api/v1/users
 router.post('/', async (req, res) => {
   try {
     // Validate sơ bộ
@@ -41,7 +84,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/users/:id
+// PUT /api/v1/users/:id
 router.put('/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -52,7 +95,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/users/:id
+// DELETE /api/v1/users/:id
 router.delete('/:id', async (req, res) => {
   try {
     const id = req.params.id;
