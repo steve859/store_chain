@@ -6,6 +6,20 @@ import { Button } from "../../components/ui/button";
 import { SearchBar } from "../../components/ui/searchbar";
 import Modal from "../../components/ui/modal";
 import { FaEdit, FaTrashAlt, FaPlus, FaFilter, FaTh, FaList, FaBarcode } from "react-icons/fa";
+import paperIcon from "../../assets/categories/paper.png";
+import dairyIcon from "../../assets/categories/dairy.png";
+import softDrinkIcon from "../../assets/categories/soft-drink.png";
+import cleanIcon from "../../assets/categories/clean.png";
+import fastfoodIcon from "../../assets/categories/fastfood.png";
+import confectioneryIcon from "../../assets/categories/confectionery.png";
+import creamIcon from "../../assets/categories/cream.png";
+import washingIcon from "../../assets/categories/washing.png";
+import furnitureIcon from "../../assets/categories/furniture.png";
+import coffeeIcon from "../../assets/categories/coffee.png";
+import waterBottleIcon from "../../assets/categories/water-bottle.png";
+import faceIcon from "../../assets/categories/face.png";
+import foodIcon from "../../assets/categories/food.png";
+import boxIcon from "../../assets/categories/box.png";
 import {
     createProduct,
     createVariant,
@@ -40,6 +54,27 @@ const getDefaultStoreId = () => {
     return 1;
 };
 
+const getCategoryIcon = (category) => {
+    const iconMap = {
+        "Giấy & khăn": paperIcon,
+        "Sữa & chế phẩm": dairyIcon,
+        "Nước ngọt": softDrinkIcon,
+        "Tẩy rửa": cleanIcon,
+        "Đồ ăn nhanh": fastfoodIcon,
+        "Bánh kẹo & snack": confectioneryIcon,
+        "Chăm sóc cá nhân": creamIcon,
+        "Dầu gội": washingIcon,
+        "Hàng gia dụng": furnitureIcon,
+        "Cà phê & trà": coffeeIcon,
+        "Nước uống đóng chai": waterBottleIcon,
+        "Chăm sóc da": faceIcon,
+        "Thực phẩm": foodIcon,
+        "Đồ uống": softDrinkIcon,
+        "Vật dụng": boxIcon,
+    };
+    return iconMap[category] || softDrinkIcon;
+};
+
 const mapProductFromApi = (p, variantStockById) => {
     const variants = (p.product_variants ?? []).map((v) => {
         const variantId = v.id;
@@ -63,7 +98,7 @@ const mapProductFromApi = (p, variantStockById) => {
         brand: p.brand ?? "",
         unit: p.unit ?? "",
         status: p.is_active ? "active" : "inactive",
-        image: "📦",
+        image: getCategoryIcon(p.category ?? ""),
         variants,
     };
 };
@@ -828,7 +863,7 @@ export default function Products() {
                     {filteredProducts.map((product) => (
                         <Card key={product.id} className={product.status === "inactive" ? "opacity-60" : ""}>
                             <CardContent className="flex flex-col items-center space-y-3 p-5">
-                                <div className="text-5xl">{product.image}</div>
+                                <img src={product.image} alt={product.category} className="w-16 h-16 object-contain" />
                                 <h3 className="text-lg font-semibold text-center">{product.name}</h3>
                                 <p className="text-sm text-slate-600">{product.category}</p>
                                 <p className="text-blue-600 font-medium">{getPriceRange(product)}</p>
@@ -889,7 +924,7 @@ export default function Products() {
                                         >
                                             <td className="p-4">
                                                 <div className="flex items-center gap-3">
-                                                    <span className="text-2xl">{product.image}</span>
+                                                    <img src={product.image} alt={product.category} className="w-10 h-10 object-contain" />
                                                     <div>
                                                         <p className="font-medium">{product.name}</p>
                                                         <p className="text-xs text-gray-400">{product.brand}</p>
