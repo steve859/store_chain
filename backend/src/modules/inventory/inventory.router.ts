@@ -3,6 +3,7 @@ import { Prisma } from '../../generated/prisma';
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
+import { invalidateCatalogCache } from '../../lib/cache/catalog';
 
 const router = Router();
 
@@ -353,6 +354,7 @@ router.post('/receive', async (req, res, next) => {
       return { inventory, lot, movement };
     });
 
+    await invalidateCatalogCache(storeIdNum);
     return res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -481,6 +483,7 @@ router.post('/adjust', async (req, res, next) => {
       return { inventory: updated, movement };
     });
 
+    await invalidateCatalogCache(storeIdNum);
     return res.status(201).json(result);
   } catch (err) {
     next(err);

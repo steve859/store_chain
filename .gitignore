@@ -1,0 +1,17 @@
+# Dependencies
+**/node_modules/
+
+# Build outputs
+**/dist/
+
+# Env files
+**/.env
+
+# Test outputs
+**/coverage/
+
+# Logs
+**/*.log
+
+# Local pgAdmin data (docker volume)
+pgadmin-data/
