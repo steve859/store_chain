@@ -1,0 +1,196 @@
+# Thiết kế hệ thống — Website quản lý chuỗi cửa hàng tạp hóa
+
+> Tài liệu này mô tả kiến trúc, chức năng chính, mô hình dữ liệu, API, công nghệ đề xuất và lộ trình triển khai cho một hệ thống quản lý chuỗi cửa hàng tạp hóa (retail grocery chain management).
+
+---
+
+## 1. Mục tiêu hệ thống
+
+* Quản lý nhiều cửa hàng (store) trong một hệ thống tập trung.
+* Quản lý hàng tồn kho, bán hàng tại quầy (POS), chuyển kho, đặt hàng nhà cung cấp.
+* Quản lý khách hàng, chương trình khuyến mãi và báo cáo kinh doanh.
+* Hỗ trợ phân quyền: Admin chuỗi, Quản lý cửa hàng, Nhân viên bán hàng, Kế toán.
+* Hệ thống có thể mở rộng (scalable), an toàn và có thể tích hợp với phần cứng POS (máy in hóa đơn, máy quét mã vạch).
+
+## 2. Người dùng & phân quyền
+
+* **Super Admin / Head Office**: cấu hình hệ thống, xem báo cáo tổng thể, quản lý chuỗi.
+* **Store Manager**: quản lý hàng tồn, tạo đơn đặt hàng, xem báo cáo cửa hàng.
+* **Cashier / Staff**: thực hiện bán hàng, trả hàng, thao tác POS.
+* **Supplier**: (tuỳ chọn) xem đơn hàng nhà cung cấp, trạng thái giao hàng.
+* **Accountant**: xem sổ sách, báo cáo tài chính.
+
+## 3. Các chức năng chính (Modules)
+
+1. **Quản lý sản phẩm (Catalog)**
+
+   * SKU, barcode, tên, mô tả, danh mục, đơn vị tính, hình ảnh.
+   * Giá bán, giá nhập, giá khuyến mãi.
+2. **Quản lý kho (Inventory)**
+
+   * Tồn kho theo cửa hàng và tồn kho tập trung.
+   * Nhập kho, điều chuyển kho, kiểm kho, cảnh báo tồn tối thiểu.
+3. **POS & Bán hàng**
+
+   * Bán hàng nhanh, quét mã vạch, thanh toán tiền mặt/thẻ/QR.
+   * Hủy/Trả hàng, hoá đơn in.
+4. **Đơn hàng nhà cung cấp (Purchasing)**
+
+   * Tạo PO, theo dõi nhận hàng, quản lý công nợ nhà cung cấp.
+5. **Khách hàng & Loyalty**
+
+   * Hồ sơ khách hàng, điểm thưởng, phiếu giảm giá.
+6. **Khuyến mãi & Giá**
+
+   * Giá theo chương trình, combo, voucher, thời gian áp dụng.
+7. **Báo cáo & Dashboard**
+
+   * Doanh thu theo cửa hàng/chuỗi, lợi nhuận, tồn kho, hàng bán chạy.
+8. **Cấu hình & Audit**
+
+   * Log hoạt động, cấu hình thuế, phương thức vận chuyển.
+
+## 4. Yêu cầu phi chức năng
+
+* **Hiệu năng:** hỗ trợ nhiều cửa hàng, thao tác POS phải nhanh (<200ms cho thao tác bán hàng cục bộ).
+* **Độ sẵn sàng:** SLA cao cho POS (cơ chế offline mode khi mất mạng) và phục hồi khi có kết nối.
+* **Bảo mật:** xác thực JWT/OAuth2, audit log, phân quyền theo vai trò.
+* **Mở rộng:** microservices hoặc modular monolith dễ tách dịch vụ.
+
+## 5. Kiến trúc đề xuất
+
+* **Frontend:** React (SPA) cho quản trị, PWA hoặc Electron cho POS/ứng dụng bán hàng.
+* **Backend:** RESTful API (hoặc GraphQL cho dashboard) — Node.js (Express/NestJS) hoặc Spring Boot.
+* **Auth:** OAuth2 / OpenID Connect + JWT.
+* **DB chính:** PostgreSQL (quan hệ) để lưu transactons.
+* **Cache/Session:** Redis (caching, offline queue).
+* **Search:** OpenSearch/Elasticsearch cho tìm kiếm sản phẩm và báo cáo nhanh.
+* **Message Bus:** RabbitMQ hoặc Kafka (event-driven: điều chuyển kho, tạo báo cáo bất đồng bộ).
+* **File Storage:** S3-compatible (hình ảnh, hóa đơn PDF).
+* **Deployment:** Kubernetes (EKS/GKE/AKS) hoặc Docker Compose cho MVP.
+* **CI/CD:** GitHub Actions / GitLab CI.
+
+Kiến trúc logical: Frontend -> API Gateway -> Authentication -> Microservices (Catalog, Inventory, POS, Purchasing, Reporting) -> DB/Cache/Message Bus.
+
+## 6. Mô hình dữ liệu (tóm tắt)
+
+* Bảng chính: `stores`, `users`, `roles`, `products`, `skus`, `inventory_levels`, `pos_sales`, `pos_line_items`, `purchase_orders`, `suppliers`, `customers`, `promotions`, `transactions`, `stock_moves`, `audit_logs`.
+
+### Ví dụ một số bảng (SQL kiểu PostgreSQL)
+
+```sql
+CREATE TABLE stores (
+  id uuid PRIMARY KEY,
+  name text NOT NULL,
+  address text,
+  phone text,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE products (
+  id uuid PRIMARY KEY,
+  name text NOT NULL,
+  description text,
+  category text,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE skus (
+  id uuid PRIMARY KEY,
+  product_id uuid REFERENCES products(id),
+  sku_code text UNIQUE,
+  barcode text UNIQUE,
+  unit text,
+  cost numeric(12,2),
+  price numeric(12,2)
+);
+
+CREATE TABLE inventory_levels (
+  id uuid PRIMARY KEY,
+  store_id uuid REFERENCES stores(id),
+  sku_id uuid REFERENCES skus(id),
+  quantity integer NOT NULL DEFAULT 0,
+  reserved integer DEFAULT 0,
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(store_id, sku_id)
+);
+
+CREATE TABLE pos_sales (
+  id uuid PRIMARY KEY,
+  store_id uuid REFERENCES stores(id),
+  cashier_id uuid REFERENCES users(id),
+  total_amount numeric(12,2),
+  paid_amount numeric(12,2),
+  payment_method text,
+  created_at timestamptz DEFAULT now()
+);
+```
+
+## 7. API mẫu (REST)
+
+* `POST /api/v1/auth/login` — trả JWT
+* `GET /api/v1/stores` — lấy danh sách cửa hàng
+* `GET /api/v1/products?q=...` — tìm sản phẩm
+* `POST /api/v1/pos/sales` — tạo giao dịch bán hàng (nội dung: store_id, cashier_id, items[])
+* `POST /api/v1/inventory/adjust` — điều chỉnh tồn kho
+* `POST /api/v1/purchase_orders` — tạo PO
+* `GET /api/v1/reports/sales?from=YYYY-MM-DD&to=YYYY-MM-DD&store_id=` — báo cáo
+
+Ví dụ payload `POST /api/v1/pos/sales`:
+
+```json
+{
+  "store_id": "...",
+  "cashier_id": "...",
+  "items": [
+    {"sku_id":"...","quantity":2,"price":12000},
+    {"sku_id":"...","quantity":1,"price":8000}
+  ],
+  "payment": {"method":"cash","amount":32000}
+}
+```
+
+## 8. Offline-first cho POS
+
+* POS lưu giao dịch cục bộ (SQLite/IndexedDB), đẩy lên server khi có mạng.
+* Dùng Redis + message queue để xử lý đồng bộ hoá và giải quyết xung đột tồn kho.
+* Khi đồng bộ, server trả số hoá đơn chính thức, POS cập nhật.
+
+## 9. Tính toán tồn kho & đồng bộ
+
+* Mỗi giao dịch POS tạo event `sale_created` với line items.
+* Inventory service xử lý event: trừ tồn (`inventory_levels.quantity -= qty`) theo nguyên tử (transaction DB).
+* Đối với điều chuyển kho: tạo `stock_move` với trạng thái `pending` -> `completed`.
+
+## 10. Bảo mật & tuân thủ
+
+* TLS mọi endpoint.
+* Mật khẩu lưu bằng bcrypt/argon2.
+* RBAC rõ ràng và kiểm tra permission ở service boundary.
+* Audit logs cho mọi hành động tạo/xóa/điều chỉnh túi tiền/ tồn kho.
+
+## 11. Giám sát & vận hành
+
+* Logging: sent to ELK (OpenSearch) hoặc Grafana Loki.
+* Metrics: Prometheus + Grafana (latency, error rate, throughput, tồn kho cảnh báo).
+* Alerting: cảnh báo tồn kho thấp, thất thoát kho, lỗi POS.
+
+## 12. Lộ trình triển khai (MVP đề xuất)
+
+1. Phase 0 — Foundation (2–4 tuần): DB schema, auth, user management, stores.
+2. Phase 1 — Core (4–8 tuần): Catalog, SKUs, Inventory basic, POS MVP (offline minimal), Sales API.
+3. Phase 2 — Purchasing & Suppliers (3–5 tuần): PO flow, receiving, công nợ.
+4. Phase 3 — Reports & Promotions (3–6 tuần): báo cáo doanh thu, promo engine.
+5. Phase 4 — Scaling & Hardening: CI/CD, monitoring, multi-region, payment gateway.
+
+## 13. Các vấn đề cần cân nhắc / câu hỏi mở
+
+* Chính sách giá theo chuỗi/cửa hàng riêng biệt?
+* Yêu cầu tích hợp với cổng thanh toán, máy in hoá đơn, máy pos?
+* Có cần module vận chuyển (delivery) hay chỉ cửa hàng bán lẻ?
+
+---
+
+### Kết luận
+
+Tài liệu trên là bản thảo thiết kế hệ thống cho website/ứng dụng quản lý chuỗi cửa hàng tạp hóa — đủ để bắt đầu xây MVP. Tôi có thể mở rộng: ERD chi tiết, sequence diagrams cho quy trình bán hàng & điều chuyển kho, hoặc file SQL/seed data nếu bạn muốn.
