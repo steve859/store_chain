@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';

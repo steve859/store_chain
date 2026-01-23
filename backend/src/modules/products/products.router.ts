@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import prisma from '../../db/prisma';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client'
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
