@@ -123,7 +123,7 @@ ALTER COLUMN "updated_at" SET DEFAULT CURRENT_TIMESTAMP,
 ADD CONSTRAINT "categories_pkey" PRIMARY KEY ("id");
 
 -- AlterTable
-ALTER TABLE "complaints" ALTER COLUMN "updated_at" DROP DEFAULT;
+ALTER TABLE IF EXISTS "complaints" ALTER COLUMN "updated_at" DROP DEFAULT;
 
 -- AlterTable
 ALTER TABLE "products" DROP CONSTRAINT "products_pkey",
