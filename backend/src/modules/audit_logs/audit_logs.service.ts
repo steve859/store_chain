@@ -1,4 +1,5 @@
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client'
+
 import prisma from '../../db/prisma';
 
 interface GetLogsParams {
@@ -79,7 +80,7 @@ export const AuditLogsService = {
     ]);
 
     // XỬ LÝ BIGINT: Convert BigInt sang String để tránh lỗi JSON
-    const serializedLogs = logs.map(log => ({
+    const serializedLogs = logs.map((log: Prisma.audit_logsGetPayload<{ include: { users: { select: { id: true; email: true } } } }>) => ({
       ...log,
       id: log.id.toString(), // Quan trọng!
     }));

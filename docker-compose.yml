@@ -11,49 +11,19 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/store_chain
+
+      # ✅ NEON DATABASE
+      DATABASE_URL: postgresql://neondb_owner:npg_mU0pnHQDk7yI@ep-falling-river-a1zkdr9d-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+      # ✅ REDIS
       REDIS_URL: redis://redis:6379
+
     depends_on:
-      - postgres
       - redis
+
     volumes:
       - ./backend:/app/backend
       - backend-node-modules:/app/backend/node_modules
-
-  postgres:
-    image: postgres:15
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: store_chain
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  pgadmin:
-    image: dpage/pgadmin4
-    restart: unless-stopped
-    ports:
-      - "5050:80"
-    environment:
-      PGADMIN_DEFAULT_EMAIL: quannguyen.coder@gmail.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-    depends_on:
-      - postgres
-    volumes:
-      # Save pgAdmin internal data so settings never disappear
-      - ./pgadmin-data:/var/lib/pgadmin
-
-      # Auto-load server config
-      - ./pgadmin/servers.json:/pgadmin4/servers.json
 
   redis:
     image: redis:7
@@ -64,6 +34,5 @@ services:
       - redis-data:/data
 
 volumes:
-  postgres-data:
   redis-data:
   backend-node-modules:

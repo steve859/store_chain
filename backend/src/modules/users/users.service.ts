@@ -1,7 +1,8 @@
 import bcrypt from 'bcrypt';
 
 import prisma from '../../db/prisma';
-import type { Prisma } from '../../generated/prisma';
+import type { Prisma } from '@prisma/client';
+
 
 // DTO cho tạo mới
 interface CreateUserDto {

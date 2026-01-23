@@ -1,5 +1,5 @@
 import prisma from '../../db/prisma';
-import { DiscountType } from '../../generated/prisma';
+import { DiscountType } from '@prisma/client'
 
 // DTO Input
 interface CreatePromotionDto {
