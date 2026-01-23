@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/steve859/store_chain_backend#readme",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.17",
@@ -50,6 +51,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
+    "@types/pg": "^8.15.1",
     "@types/node-cron": "^3.0.11",
     "@types/supertest": "^6.0.3",
     "@typescript-eslint/eslint-plugin": "^7.0.1",
