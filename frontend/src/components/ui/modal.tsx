@@ -31,7 +31,7 @@ const Modal = React.forwardRef<HTMLDivElement, ModalProps>(
         <div
           ref={ref}
           className={cn(
-            "relative w-full max-w-lg rounded-lg bg-white shadow-xl animate-in zoom-in-95 duration-200",
+            "relative w-auto max-w-fit rounded-lg bg-white shadow-xl animate-in zoom-in-95 duration-200",
             className
           )}
           {...props}

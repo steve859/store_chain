@@ -361,59 +361,61 @@ const InventoryAdjustment = () => {
                         </p>
                     </div>
 
-                    {/* Store */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Cửa hàng *</label>
-                        <select
-                            value={formData.store}
-                            onChange={(e) => setFormData({ ...formData, store: e.target.value })}
-                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.store ? "border-red-500" : ""}`}
-                        >
-                            <option value="">Chọn cửa hàng</option>
-                            {stores.map((store) => (
-                                <option key={store.id} value={store.id}>
-                                    {store.name} ({store.code})
-                                </option>
-                            ))}
-                        </select>
-                        {formErrors.store && <p className="text-red-500 text-xs mt-1">{formErrors.store}</p>}
-                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Store */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Cửa hàng *</label>
+                            <select
+                                value={formData.store}
+                                onChange={(e) => setFormData({ ...formData, store: e.target.value })}
+                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.store ? "border-red-500" : ""}`}
+                            >
+                                <option value="">Chọn cửa hàng</option>
+                                {stores.map((store) => (
+                                    <option key={store.id} value={store.id}>
+                                        {store.name} ({store.code})
+                                    </option>
+                                ))}
+                            </select>
+                            {formErrors.store && <p className="text-red-500 text-xs mt-1">{formErrors.store}</p>}
+                        </div>
 
-                    {/* Product */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Sản phẩm *</label>
-                        <select
-                            value={formData.product}
-                            onChange={(e) => setFormData({ ...formData, product: e.target.value, variant: "" })}
-                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.product ? "border-red-500" : ""}`}
-                        >
-                            <option value="">Chọn sản phẩm</option>
-                            {products.map((product) => (
-                                <option key={product.id} value={product.id}>
-                                    {product.name} ({product.sku || "—"})
-                                </option>
-                            ))}
-                        </select>
-                        {formErrors.product && <p className="text-red-500 text-xs mt-1">{formErrors.product}</p>}
-                    </div>
+                        {/* Product */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Sản phẩm *</label>
+                            <select
+                                value={formData.product}
+                                onChange={(e) => setFormData({ ...formData, product: e.target.value, variant: "" })}
+                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.product ? "border-red-500" : ""}`}
+                            >
+                                <option value="">Chọn sản phẩm</option>
+                                {products.map((product) => (
+                                    <option key={product.id} value={product.id}>
+                                        {product.name} ({product.sku || "—"})
+                                    </option>
+                                ))}
+                            </select>
+                            {formErrors.product && <p className="text-red-500 text-xs mt-1">{formErrors.product}</p>}
+                        </div>
 
-                    {/* Variant */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Biến thể *</label>
-                        <select
-                            value={formData.variant}
-                            onChange={(e) => setFormData({ ...formData, variant: e.target.value })}
-                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.variant ? "border-red-500" : ""}`}
-                            disabled={!formData.product}
-                        >
-                            <option value="">Chọn biến thể</option>
-                            {getVariants().map((variant) => (
-                                <option key={variant.id} value={variant.id}>
-                                    {(variant.name || "—")} - {(variant.variant_code || variant.barcode || "—")}
-                                </option>
-                            ))}
-                        </select>
-                        {formErrors.variant && <p className="text-red-500 text-xs mt-1">{formErrors.variant}</p>}
+                        {/* Variant */}
+                        <div className="col-span-2">
+                            <label className="block text-sm font-medium mb-1">Biến thể *</label>
+                            <select
+                                value={formData.variant}
+                                onChange={(e) => setFormData({ ...formData, variant: e.target.value })}
+                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.variant ? "border-red-500" : ""}`}
+                                disabled={!formData.product}
+                            >
+                                <option value="">Chọn biến thể</option>
+                                {getVariants().map((variant) => (
+                                    <option key={variant.id} value={variant.id}>
+                                        {(variant.name || "—")} - {(variant.variant_code || variant.barcode || "—")}
+                                    </option>
+                                ))}
+                            </select>
+                            {formErrors.variant && <p className="text-red-500 text-xs mt-1">{formErrors.variant}</p>}
+                        </div>
                     </div>
 
                     {/* Current Stock Display */}
@@ -428,81 +430,83 @@ const InventoryAdjustment = () => {
                         </div>
                     )}
 
-                    {/* Adjustment Type */}
-                    <div>
-                        <label className="block text-sm font-medium mb-2">Loại điều chỉnh *</label>
-                        <div className="flex gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="adjustmentType"
-                                    value="increase"
-                                    checked={formData.adjustmentType === "increase"}
-                                    onChange={(e) => setFormData({ ...formData, adjustmentType: e.target.value })}
-                                    className="h-4 w-4"
-                                />
-                                <span className="text-sm text-green-700">Tăng (+)</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="adjustmentType"
-                                    value="decrease"
-                                    checked={formData.adjustmentType === "decrease"}
-                                    onChange={(e) => setFormData({ ...formData, adjustmentType: e.target.value })}
-                                    className="h-4 w-4"
-                                />
-                                <span className="text-sm text-red-700">Giảm (-)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    {/* Quantity */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Số lượng *</label>
-                        <input
-                            type="number"
-                            value={formData.quantity}
-                            onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.quantity ? "border-red-500" : ""}`}
-                            placeholder="0"
-                            min="1"
-                        />
-                        {formErrors.quantity && <p className="text-red-500 text-xs mt-1">{formErrors.quantity}</p>}
-                    </div>
-
-                    {/* Reason */}
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Lý do *</label>
-                        <select
-                            value={formData.reason}
-                            onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.reason ? "border-red-500" : ""}`}
-                        >
-                            <option value="">Chọn lý do</option>
-                            {adjustmentReasons.map((reason) => (
-                                <option key={reason} value={reason}>
-                                    {reason}
-                                </option>
-                            ))}
-                        </select>
-                        {formErrors.reason && <p className="text-red-500 text-xs mt-1">{formErrors.reason}</p>}
-                    </div>
-
-                    {/* Custom Reason */}
-                    {formData.reason === "Khác" && (
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Adjustment Type */}
                         <div>
-                            <label className="block text-sm font-medium mb-1">Lý do cụ thể *</label>
-                            <input
-                                type="text"
-                                value={formData.customReason}
-                                onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
-                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.customReason ? "border-red-500" : ""}`}
-                                placeholder="Nhập lý do..."
-                            />
-                            {formErrors.customReason && <p className="text-red-500 text-xs mt-1">{formErrors.customReason}</p>}
+                            <label className="block text-sm font-medium mb-2">Loại điều chỉnh *</label>
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="adjustmentType"
+                                        value="increase"
+                                        checked={formData.adjustmentType === "increase"}
+                                        onChange={(e) => setFormData({ ...formData, adjustmentType: e.target.value })}
+                                        className="h-4 w-4"
+                                    />
+                                    <span className="text-sm text-green-700">Tăng (+)</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="adjustmentType"
+                                        value="decrease"
+                                        checked={formData.adjustmentType === "decrease"}
+                                        onChange={(e) => setFormData({ ...formData, adjustmentType: e.target.value })}
+                                        className="h-4 w-4"
+                                    />
+                                    <span className="text-sm text-red-700">Giảm (-)</span>
+                                </label>
+                            </div>
                         </div>
-                    )}
+
+                        {/* Quantity */}
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Số lượng *</label>
+                            <input
+                                type="number"
+                                value={formData.quantity}
+                                onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.quantity ? "border-red-500" : ""}`}
+                                placeholder="0"
+                                min="1"
+                            />
+                            {formErrors.quantity && <p className="text-red-500 text-xs mt-1">{formErrors.quantity}</p>}
+                        </div>
+
+                        {/* Reason */}
+                        <div className={formData.reason === "Khác" ? "col-span-1" : "col-span-2"}>
+                            <label className="block text-sm font-medium mb-1">Lý do *</label>
+                            <select
+                                value={formData.reason}
+                                onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                                className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.reason ? "border-red-500" : ""}`}
+                            >
+                                <option value="">Chọn lý do</option>
+                                {adjustmentReasons.map((reason) => (
+                                    <option key={reason} value={reason}>
+                                        {reason}
+                                    </option>
+                                ))}
+                            </select>
+                            {formErrors.reason && <p className="text-red-500 text-xs mt-1">{formErrors.reason}</p>}
+                        </div>
+
+                        {/* Custom Reason */}
+                        {formData.reason === "Khác" && (
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Lý do cụ thể *</label>
+                                <input
+                                    type="text"
+                                    value={formData.customReason}
+                                    onChange={(e) => setFormData({ ...formData, customReason: e.target.value })}
+                                    className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.customReason ? "border-red-500" : ""}`}
+                                    placeholder="Nhập lý do..."
+                                />
+                                {formErrors.customReason && <p className="text-red-500 text-xs mt-1">{formErrors.customReason}</p>}
+                            </div>
+                        )}
+                    </div>
 
                     {/* Note */}
                     <div>

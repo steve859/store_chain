@@ -598,7 +598,7 @@ const PurchaseOrders = () => {
             </Card>
 
             {/* Create PO Modal */}
-            <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Tạo đơn nhập hàng">
+            <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Tạo đơn nhập hàng" className="max-w-4xl">
                 <form onSubmit={(e) => handleCreatePO(e, false)} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                     {/* Supplier & Store */}
                     <div className="grid grid-cols-2 gap-4">
@@ -742,7 +742,7 @@ const PurchaseOrders = () => {
             {/* Detail Modal */}
             <Modal isOpen={isDetailModalOpen} onClose={() => setIsDetailModalOpen(false)} title={`Chi tiết ${selectedPO?.code || ""}`}>
                 {selectedPO && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                         <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
                                 <p className="text-gray-500">Nhà cung cấp</p>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { FaThLarge, FaBox, FaUserTie, FaShoppingCart, FaSignOutAlt, FaExclamationCircle, FaTruck, FaWarehouse, FaTags, FaUndo } from 'react-icons/fa';
+import { FaThLarge, FaBox, FaUserTie, FaShoppingCart, FaSignOutAlt, FaExclamationCircle, FaTruck, FaWarehouse, FaTags, FaUndo, FaUsers } from 'react-icons/fa';
 import { cn } from '../lib/utils';
 import Dashboard from '../pages/DashBoard';
 import Products from '../pages/Products';
@@ -12,6 +12,7 @@ import InventoryAdjustment from '../pages/InventoryAdjustment';
 import Promotions from '../pages/Promotions';
 import Return from '../pages/POS/Return';
 import StoreSwitcher from '../components/StoreSwitcher';
+import Users from '../pages/Users';
 
 const EmployeeLayout = () => {
     const [currentView, setCurrentView] = useState("dashboard");
@@ -40,7 +41,8 @@ const EmployeeLayout = () => {
         { id: "promotions", name: "Khuyến mãi", icon: <FaTags />, component: Promotions },
         { id: "return", name: "Trả Hàng", icon: <FaUndo />, component: Return },
         { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
-        { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+        // { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+        { id: "users", name: "Nhân sự", icon: <FaUsers />, component: Users },
         { id: "complaints", name: "Khiếu Nại", icon: <FaExclamationCircle />, component: Complaints },
     ];
 
