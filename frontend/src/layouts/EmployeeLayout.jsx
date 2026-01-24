@@ -34,7 +34,7 @@ const EmployeeLayout = () => {
     // Store Manager menu: Day-to-day operations
     // Excluded: Cửa hàng, Bán hàng (POS), Người dùng, Chuyển kho
     const menuItems = [
-        { id: "dashboard", name: "Dashboard", icon: <FaThLarge />, component: Dashboard },
+        // { id: "dashboard", name: "Dashboard", icon: <FaThLarge />, component: Dashboard },
         { id: "products", name: "Sản Phẩm", icon: <FaBox />, component: Products },
         { id: "inventory", name: "Điều Chỉnh Kho", icon: <FaWarehouse />, component: InventoryAdjustment },
         { id: "purchase", name: "Nhập Hàng", icon: <FaTruck />, component: PurchaseOrders },
