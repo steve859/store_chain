@@ -37,7 +37,7 @@ const CashierLayoutInner = () => {
 
     // Cashier menu: Day-to-day checkout activities only
     const menuItems = [
-        { id: "dashboard", name: "Dashboard", icon: <FaThLarge />, component: Dashboard },
+        // { id: "dashboard", name: "Dashboard", icon: <FaThLarge />, component: Dashboard },
         { id: "pos", name: "Bán Hàng (POS)", icon: <FaCashRegister />, component: POS },
         // { id: "products", name: "Sản Phẩm", icon: <FaBox />, component: Products },
         { id: "complaints", name: "Khiếu Nại", icon: <FaExclamationCircle />, component: Complaints },
