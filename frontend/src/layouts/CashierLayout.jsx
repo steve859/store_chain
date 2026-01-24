@@ -109,7 +109,7 @@ const CashierLayoutInner = () => {
                         <h2 className="font-semibold text-gray-700">
                             {menuItems.find(item => item.id === currentView)?.name || 'Dashboard'}
                         </h2>
-                        <StoreSwitcher className="flex items-center" />
+                        {/* <StoreSwitcher className="flex items-center" /> */}
                     </div>
                     <ShiftStatusBar />
                 </header>
