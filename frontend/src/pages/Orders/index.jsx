@@ -236,7 +236,6 @@ export default function Orders() {
                     setSelectedId(null);
                 }}
                 title={selectedId ? `Chi tiết đơn hàng #${selectedId}` : "Chi tiết đơn hàng"}
-                className="max-w-3xl"
             >
                 {detailsError ? (
                     <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{detailsError}</div>

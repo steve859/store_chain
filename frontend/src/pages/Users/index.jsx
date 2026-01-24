@@ -340,133 +340,135 @@ const Users = () => {
     // Render form
     const renderForm = (onSubmit, buttonText) => (
         <form onSubmit={onSubmit} className="space-y-4">
-            {/* Username */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Username *</label>
-                <input
-                    type="text"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.username ? 'border-red-500' : ''}`}
-                    placeholder="Nhập username"
-                />
-                {formErrors.username && <p className="text-red-500 text-xs mt-1">{formErrors.username}</p>}
-            </div>
-
-            {/* Full Name */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Họ tên *</label>
-                <input
-                    type="text"
-                    value={formData.fullName}
-                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                    className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.fullName ? 'border-red-500' : ''}`}
-                    placeholder="Nhập họ tên"
-                />
-                {formErrors.fullName && <p className="text-red-500 text-xs mt-1">{formErrors.fullName}</p>}
-            </div>
-
-            {/* Email */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Email *</label>
-                <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.email ? 'border-red-500' : ''}`}
-                    placeholder="Nhập email"
-                />
-                {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
-            </div>
-
-            {/* Phone */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Số điện thoại</label>
-                <input
-                    type="text"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                    placeholder="Nhập số điện thoại"
-                />
-            </div>
-
-            {/* Password */}
-            <div>
-                <label className="block text-sm font-medium mb-1">
-                    Mật khẩu {buttonText === "Thêm người dùng" ? "*" : ""}
-                </label>
-                <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.password ? 'border-red-500' : ''}`}
-                    placeholder={buttonText === "Thêm người dùng" ? "Nhập mật khẩu" : "Để trống nếu không đổi"}
-                />
-                {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
-            </div>
-
-            {/* Role */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Vai trò *</label>
-                <select
-                    value={formData.roleId}
-                    onChange={(e) => {
-                        const newRoleId = e.target.value;
-                        const role = roleById.get(String(newRoleId));
-                        setFormData({
-                            ...formData,
-                            roleId: newRoleId,
-                            storeId: role?.name === "admin" ? "" : formData.storeId,
-                        });
-                    }}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                    {roles.length === 0 && <option value="">(Chưa tải được vai trò)</option>}
-                    {roles.map((r) => (
-                        <option key={r.id} value={String(r.id)}>
-                            {r.description || r.name}
-                        </option>
-                    ))}
-                </select>
-                {formErrors.roleId && <p className="text-red-500 text-xs mt-1">{formErrors.roleId}</p>}
-            </div>
-
-            {/* Store - Only show for non-admin */}
-            {roleById.get(String(formData.roleId))?.name !== "admin" && (
+            <div className="grid grid-cols-2 gap-4">
+                {/* Username */}
                 <div>
-                    <label className="block text-sm font-medium mb-1">Cửa hàng *</label>
+                    <label className="block text-sm font-medium mb-1">Username *</label>
+                    <input
+                        type="text"
+                        value={formData.username}
+                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.username ? 'border-red-500' : ''}`}
+                        placeholder="Nhập username"
+                    />
+                    {formErrors.username && <p className="text-red-500 text-xs mt-1">{formErrors.username}</p>}
+                </div>
+
+                {/* Full Name */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">Họ tên *</label>
+                    <input
+                        type="text"
+                        value={formData.fullName}
+                        onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.fullName ? 'border-red-500' : ''}`}
+                        placeholder="Nhập họ tên"
+                    />
+                    {formErrors.fullName && <p className="text-red-500 text-xs mt-1">{formErrors.fullName}</p>}
+                </div>
+
+                {/* Email */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">Email *</label>
+                    <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.email ? 'border-red-500' : ''}`}
+                        placeholder="Nhập email"
+                    />
+                    {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
+                </div>
+
+                {/* Phone */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">Số điện thoại</label>
+                    <input
+                        type="text"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className="w-full rounded-md border px-3 py-2 text-sm"
+                        placeholder="Nhập số điện thoại"
+                    />
+                </div>
+
+                {/* Password */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">
+                        Mật khẩu {buttonText === "Thêm người dùng" ? "*" : ""}
+                    </label>
+                    <input
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.password ? 'border-red-500' : ''}`}
+                        placeholder={buttonText === "Thêm người dùng" ? "Nhập mật khẩu" : "Để trống nếu không đổi"}
+                    />
+                    {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
+                </div>
+
+                {/* Role */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">Vai trò *</label>
                     <select
-                        value={formData.storeId}
-                        onChange={(e) => setFormData({ ...formData, storeId: e.target.value })}
-                        className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.storeId ? 'border-red-500' : ''}`}
+                        value={formData.roleId}
+                        onChange={(e) => {
+                            const newRoleId = e.target.value;
+                            const role = roleById.get(String(newRoleId));
+                            setFormData({
+                                ...formData,
+                                roleId: newRoleId,
+                                storeId: role?.name === "admin" ? "" : formData.storeId,
+                            });
+                        }}
+                        className="w-full rounded-md border px-3 py-2 text-sm"
                     >
-                        <option value="">Chọn cửa hàng</option>
-                        {stores.map((s) => (
-                            <option key={s.id} value={String(s.id)}>
-                                {s.name} {s.code ? `(${s.code})` : ""}
+                        {roles.length === 0 && <option value="">(Chưa tải được vai trò)</option>}
+                        {roles.map((r) => (
+                            <option key={r.id} value={String(r.id)}>
+                                {r.description || r.name}
                             </option>
                         ))}
                     </select>
-                    {formErrors.storeId && <p className="text-red-500 text-xs mt-1">{formErrors.storeId}</p>}
+                    {formErrors.roleId && <p className="text-red-500 text-xs mt-1">{formErrors.roleId}</p>}
                 </div>
-            )}
 
-            {/* Status */}
-            <div>
-                <label className="block text-sm font-medium mb-1">Trạng thái</label>
-                <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                    <option value="active">Hoạt động</option>
-                    <option value="inactive">Vô hiệu hóa</option>
-                </select>
+                {/* Store - Only show for non-admin */}
+                {roleById.get(String(formData.roleId))?.name !== "admin" && (
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Cửa hàng *</label>
+                        <select
+                            value={formData.storeId}
+                            onChange={(e) => setFormData({ ...formData, storeId: e.target.value })}
+                            className={`w-full rounded-md border px-3 py-2 text-sm ${formErrors.storeId ? 'border-red-500' : ''}`}
+                        >
+                            <option value="">Chọn cửa hàng</option>
+                            {stores.map((s) => (
+                                <option key={s.id} value={String(s.id)}>
+                                    {s.name} {s.code ? `(${s.code})` : ""}
+                                </option>
+                            ))}
+                        </select>
+                        {formErrors.storeId && <p className="text-red-500 text-xs mt-1">{formErrors.storeId}</p>}
+                    </div>
+                )}
+
+                {/* Status */}
+                <div>
+                    <label className="block text-sm font-medium mb-1">Trạng thái</label>
+                    <select
+                        value={formData.status}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                        className="w-full rounded-md border px-3 py-2 text-sm"
+                    >
+                        <option value="active">Hoạt động</option>
+                        <option value="inactive">Vô hiệu hóa</option>
+                    </select>
+                </div>
             </div>
 
             {/* Submit Button */}
-            <div className="flex justify-end pt-4">
+            <div className="flex justify-end pt-4 border-t">
                 <Button type="submit">{buttonText}</Button>
             </div>
         </form>
@@ -474,7 +476,7 @@ const Users = () => {
 
     return (
         <div>
-            <Header>Quản lý Người dùng</Header>
+            <Header>Quản lý nhân sự</Header>
 
             {loadError && (
                 <Card className="my-4">

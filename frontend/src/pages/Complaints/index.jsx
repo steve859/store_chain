@@ -329,7 +329,6 @@ export default function Complaints() {
                 isOpen={isDetailsModalOpen}
                 onClose={() => setIsDetailsModalOpen(false)}
                 title={`Chi tiết khiếu nại - ${selectedComplaint?.id || ""}`}
-                className="max-w-3xl"
             >
                 {selectedComplaint && (
                     <div className="max-h-[calc(100vh-12rem)] overflow-y-auto space-y-6 pr-2">
