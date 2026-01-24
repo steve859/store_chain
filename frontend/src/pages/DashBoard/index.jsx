@@ -1,60 +1,46 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Header } from "../../components/ui/header";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-
-const mockOrders = [
-  // date in ISO yyyy-mm-dd, amount is profit for demo, items = number of products sold
-  { id: "ORD-101", date: "2025-11-22", amount: 1200000, items: 3, store: "Cửa hàng Q1", product: "Sữa tươi Vinamilk" },
-  { id: "ORD-102", date: "2025-11-22", amount: 450000, items: 1, store: "Cửa hàng Q2", product: "Bánh mì Việt Nam" },
-  { id: "ORD-090", date: "2025-11-10", amount: 980000, items: 2, store: "Cửa hàng Q1", product: "Sữa tươi Vinamilk" },
-  { id: "ORD-080", date: "2025-10-25", amount: 2200000, items: 6, store: "Cửa hàng Q2", product: "Bánh quy" },
-  { id: "ORD-070", date: "2025-11-05", amount: 700000, items: 2, store: "Cửa hàng Q3", product: "Nước suối" },
-  // add more mock rows if needed
-];
+import { getDashboardStats } from "../../services/reports";
 
 function formatVND(number) {
   return new Intl.NumberFormat("vi-VN").format(number) + "đ";
 }
 
 export default function Dashboard() {
-  const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-  const currentMonth = new Date().toISOString().slice(0, 7); // yyyy-mm
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState({
+    profitThisMonth: 0,
+    productsSoldToday: 0,
+    productsSoldThisMonth: 0,
+    ordersThisMonth: 0,
+    topProduct: "N/A",
+    topStore: "N/A",
+    recentOrders: [],
+  });
 
-  const stats = useMemo(() => {
-    let profitThisMonth = 0;
-    let productsSoldToday = 0;
-    let productsSoldThisMonth = 0;
-    let ordersThisMonth = 0;
-    const productCount = {};
-    const storeCount = {};
+  const recentOrders = useMemo(() => stats.recentOrders ?? [], [stats.recentOrders]);
 
-    for (const o of mockOrders) {
-      if (o.date.startsWith(currentMonth)) {
-        profitThisMonth += o.amount;
-        productsSoldThisMonth += o.items;
-        ordersThisMonth += 1;
-
-        // top product/store counts (month)
-        productCount[o.product] = (productCount[o.product] || 0) + o.items;
-        storeCount[o.store] = (storeCount[o.store] || 0) + o.items;
-      }
-      if (o.date === today) {
-        productsSoldToday += o.items;
-      }
+  const loadStats = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getDashboardStats();
+      setStats((prev) => ({
+        ...prev,
+        ...data,
+      }));
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || "Không thể tải dữ liệu dashboard");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const topProduct = Object.keys(productCount).reduce((a, b) => (productCount[a] >= productCount[b] ? a : b), Object.keys(productCount)[0] || "N/A");
-    const topStore = Object.keys(storeCount).reduce((a, b) => (storeCount[a] >= storeCount[b] ? a : b), Object.keys(storeCount)[0] || "N/A");
-
-    return {
-      profitThisMonth,
-      productsSoldToday,
-      productsSoldThisMonth,
-      ordersThisMonth,
-      topProduct,
-      topStore,
-    };
+  useEffect(() => {
+    loadStats();
   }, []);
 
   return (
@@ -65,9 +51,15 @@ export default function Dashboard() {
           <span className="text-sm text-slate-600 italic">Tổng quan kinh doanh</span>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline">Xuất báo cáo</Button>
+          <Button variant="outline" onClick={loadStats} disabled={loading}>
+            {loading ? "Đang tải..." : "Làm mới"}
+          </Button>
         </div>
       </header>
+
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      ) : null}
 
       <main className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -142,16 +134,24 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockOrders.slice(0, 6).map((o) => (
-                    <tr key={o.id} className="even:bg-slate-50">
-                      <td className="px-4 py-2 font-medium">{o.id}</td>
-                      <td className="px-4 py-2 text-sm text-slate-600">{o.date}</td>
-                      <td className="px-4 py-2 text-sm">{o.store}</td>
-                      <td className="px-4 py-2 text-sm">{o.product}</td>
-                      <td className="px-4 py-2 text-sm">{o.items}</td>
-                      <td className="px-4 py-2 text-sm text-blue-600">{formatVND(o.amount)}</td>
-                    </tr>
-                  ))}
+                      {recentOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                            {loading ? "Đang tải dữ liệu..." : "Chưa có dữ liệu"}
+                          </td>
+                        </tr>
+                      ) : (
+                        recentOrders.map((o) => (
+                          <tr key={o.id} className="even:bg-slate-50">
+                            <td className="px-4 py-2 font-medium">{o.id}</td>
+                            <td className="px-4 py-2 text-sm text-slate-600">{o.date || "-"}</td>
+                            <td className="px-4 py-2 text-sm">{o.store || "-"}</td>
+                            <td className="px-4 py-2 text-sm">{o.product || "-"}</td>
+                            <td className="px-4 py-2 text-sm">{o.items ?? 0}</td>
+                            <td className="px-4 py-2 text-sm text-blue-600">{formatVND(o.amount ?? 0)}</td>
+                          </tr>
+                        ))
+                      )}
                 </tbody>
               </table>
             </div>
