@@ -108,7 +108,7 @@ const AdminLayout = () => {
       {/* --- MAIN CONTENT --- */}
       <main className="flex-1 overflow-x-auto overflow-y-auto">
         <header className='h-16 flex items-center justify-between px-6 border-b border-gray-300 bg-white'>
-          <StoreSwitcher className="flex items-center" />
+          {/* <StoreSwitcher className="flex items-center" /> */}
           <div className="text-sm text-gray-600">{localStorage.getItem('userEmail') || ''}</div>
         </header>
         <div className='p-8'>
