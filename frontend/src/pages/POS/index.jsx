@@ -246,6 +246,7 @@ const POS = () => {
                 paymentMethod,
                 paidAmount: paymentMethod === "cash" ? parseFloat(cashReceived) : total,
                 totalAmount: total,
+                discount,
                 items: cart.map((it) => ({
                     variantId: it.id,
                     quantity: it.quantity,

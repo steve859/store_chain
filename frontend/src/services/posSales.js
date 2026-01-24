@@ -16,12 +16,14 @@ export async function checkoutSale({
   paymentMethod,
   paidAmount = null,
   totalAmount = null,
+  discount = null,
   items = [],
 } = {}) {
   const res = await axiosClient.post("/pos/checkout", {
     paymentMethod,
     paidAmount,
     totalAmount,
+    discount,
     items,
   });
   return res.data;
