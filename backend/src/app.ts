@@ -5,22 +5,80 @@ import routes from './routes';
 import notFound from './middlewares/notFound';
 import errorHandler from './middlewares/errorHandler';
 import { setupSwagger } from './docs/swagger';
+import {
+  monitoringMiddleware,
+  errorMonitoringMiddleware,
+  requestIdMiddleware,
+  verboseLoggingMiddleware,
+} from './middlewares/monitoring.middleware';
+import {
+  securityHeaders,
+  apiLimiter,
+  authLimiter,
+  validateInput,
+  corsValidation,
+  httpsRedirect,
+  payloadSizeLimit,
+  requestTimeout,
+} from './middlewares/security.middleware';
+import { metricsEndpoint } from './lib/monitoring/metrics';
+import { initErrorTracking } from './lib/monitoring/errorTracking';
+import { logger } from './lib/monitoring/logger';
 
 const app = express();
 
+// Initialize error tracking (Sentry)
+initErrorTracking();
+
+// Security middlewares
+app.use(httpsRedirect);
+app.use(securityHeaders);
+app.use(corsValidation);
+app.use(payloadSizeLimit);
+app.use(requestTimeout);
+app.use(apiLimiter);
+
+// Standard middlewares
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 
+// Request tracking
+app.use(requestIdMiddleware);
+app.use(verboseLoggingMiddleware);
+app.use(validateInput);
+
+// Monitoring
+app.use(monitoringMiddleware);
+
+// Health check
 app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
+// Metrics endpoint (Prometheus)
+app.get('/metrics', metricsEndpoint);
+
+// Swagger documentation
 setupSwagger(app);
 
+// Auth endpoints with stricter rate limiting
+app.use('/api/v1/auth', authLimiter);
+
+// API routes
 app.use('/api/v1', routes);
 
+// Not found handler
 app.use(notFound);
+
+// Error monitoring and handling
+app.use(errorMonitoringMiddleware);
 app.use(errorHandler);
+
+logger.info({ message: '✅ Express app configured with Phase 1 enhancements' });
 
 export default app;

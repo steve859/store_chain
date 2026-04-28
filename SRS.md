@@ -625,3 +625,7 @@ Relationship summary:
 - Store scope is enforced with x-store-id or storeId input for non-admin roles.
 - Pricing and reporting are based on server time and configured store timezones.
 - Single-currency operation is assumed unless configured otherwise at the UI layer.
+
+<!-- [MermaidChart: 7c203715-4dbb-46bc-9747-3c3fc01ecc3f] -->
+<!-- [MermaidChart: 4bb22ef4-f814-4195-b2f1-8aa196c5e57b] -->
+<!-- [MermaidChart: 12223b9c-6c39-4457-b0ad-a9de260008d4] -->

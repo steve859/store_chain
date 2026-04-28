@@ -5,6 +5,11 @@ import { setupSocketHandlers } from './events/socket';
 import dotenv from 'dotenv';
 import app from './app';
 import { startScheduler } from './modules/cron/scheduler';
+import { closeQueues } from './lib/queues/jobQueue';
+import { logger } from './lib/monitoring/logger';
+
+// Import all job processors to register them
+import './lib/queues/processors';
 
 dotenv.config();
 
@@ -19,20 +24,97 @@ const startServer = async () => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
   });
 
   setupSocketHandlers(io);
-
   app.set('io', io);
 
   await startScheduler();
+
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`API server listening on http://0.0.0.0:${PORT}`);
-    console.log(`Socket.io is ready`);
+    logger.info({
+      message: '🚀 API Server Started',
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development',
+      features: [
+        '✅ Job Queue (Bull.js)',
+        '✅ Monitoring (Prometheus)',
+        '✅ Error Tracking (Sentry)',
+        '✅ Security Headers',
+        '✅ Rate Limiting',
+        '✅ Socket.IO Real-time',
+      ],
+    });
+
+    console.log(`
+╔════════════════════════════════════════╗
+║   Store Chain API - Phase 1 Ready      ║
+╠════════════════════════════════════════╣
+║ 🚀 Server:   http://0.0.0.0:${PORT}                    ║
+║ 📊 Metrics:  /metrics                  ║
+║ 📋 Swagger:  /api-docs                 ║
+║ 💚 Health:   /health                   ║
+║                                        ║
+║ Phase 1 Enhancements Active:           ║
+║ ✅ Job Queue (Bull.js + Redis)        ║
+║ ✅ Structured Logging (Pino)          ║
+║ ✅ Prometheus Metrics                 ║
+║ ✅ Sentry Error Tracking              ║
+║ ✅ Security Headers (Helmet)          ║
+║ ✅ Rate Limiting                      ║
+║ ✅ Request Monitoring                 ║
+╚════════════════════════════════════════╝
+    `);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', async () => {
+    logger.info({ message: 'SIGTERM received, shutting down gracefully...' });
+    await closeQueues();
+    httpServer.close(() => {
+      logger.info({ message: 'Server closed' });
+      process.exit(0);
+    });
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      logger.error({ message: 'Forced shutdown after timeout' });
+      process.exit(1);
+    }, 10000);
+  });
+
+  process.on('SIGINT', async () => {
+    logger.info({ message: 'SIGINT received, shutting down gracefully...' });
+    await closeQueues();
+    httpServer.close(() => {
+      logger.info({ message: 'Server closed' });
+      process.exit(0);
+    });
+  });
+
+  // Catch unhandled exceptions
+  process.on('uncaughtException', (error) => {
+    logger.error({
+      type: 'uncaught_exception',
+      error: error.message,
+      stack: error.stack,
+    });
+    process.exit(1);
+  });
+
+  // Catch unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({
+      type: 'unhandled_rejection',
+      reason: String(reason),
+    });
+    process.exit(1);
   });
 };
 
-startServer();
+startServer().catch((error) => {
+  logger.error({ message: 'Failed to start server', error: error.message });
+  process.exit(1);
+});

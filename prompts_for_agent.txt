@@ -1,0 +1,77 @@
+Prompt 1: 
+You are a senior software architect and business analyst.
+
+## Context
+
+I currently have a web-based system for managing a small grocery store chain.
+The system includes basic features such as:
+
+* Product management
+* Inventory tracking
+* Sales management
+* Simple reporting
+
+## Goal
+
+I want to upgrade this system into a **professional mini-supermarket chain management system**, similar to Circle K.
+
+## Tasks
+
+### 1. System Upgrade Analysis
+
+Analyze and propose how to transform the current system into a scalable, enterprise-level system. Include:
+
+* New required features (e.g., POS integration, multi-branch management, real-time inventory sync, promotions, loyalty program)
+* Non-functional requirements (ASRs): performance, scalability, security, availability
+* Suggested architecture (monolith → microservices if needed)
+* Technology stack recommendations (backend, frontend, database, messaging, caching)
+* Data flow between modules
+
+### 2. Feature Expansion
+
+Design detailed modules for:
+
+* Point of Sale (POS)
+* Inventory & Supply Chain Management
+* Multi-store management
+* Customer & Loyalty system
+* Promotion & pricing engine
+* Analytics & reporting dashboard
+
+### 3. System Architecture
+
+Provide:
+
+* High-level architecture diagram (textual description is fine)
+* Key services and their responsibilities
+* API communication style (REST, GraphQL, event-driven, etc.)
+* Database design approach (SQL/NoSQL, sharding, replication)
+
+### 4. Business Requirements Document (BRD)
+
+After proposing the upgraded system, write a complete BRD including:
+
+* Executive Summary
+* Business Objectives
+* Scope (In-scope / Out-of-scope)
+* Stakeholders
+* User Personas
+* Functional Requirements
+* Non-functional Requirements (ASRs clearly identified)
+* Business Process Flows
+* Success Metrics (KPIs)
+* Risks and Assumptions
+
+## Constraints
+
+* The system must support scaling to 100+ stores
+* Must support high concurrency during peak hours
+* Should be cloud-ready
+
+## Output Format
+
+* Use clear headings
+* Be structured and detailed
+* Write like a real enterprise document (not generic explanations)
+
+Think step-by-step and provide practical, realistic solutions.
