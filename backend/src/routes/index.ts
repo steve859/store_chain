@@ -19,6 +19,7 @@ import returnsRouter from '../modules/returns/returns.router';
 import complaintsRouter from '../modules/complaints/complaints.router';
 import invoicesRouter from '../modules/invoices/invoices.router';
 import loyaltyRouter from '../modules/loyalty/loyalty.router';
+import pricingRouter from '../modules/pricing/pricing.router';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ router.get('/', (_req, res) => {
 	res.json({
 		status: 'ok',
 		version: 'v1',
-		routes: ['stores', 'products', 'inventory', 'orders', 'sales', 'invoices', 'users', 'pos', 'promotions', 'transfers', 'returns', 'complaints', 'loyalty'],
+		routes: ['stores', 'products', 'inventory', 'orders', 'sales', 'invoices', 'users', 'pos', 'promotions', 'transfers', 'returns', 'complaints', 'loyalty', 'pricing'],
 	});
 });
 
@@ -50,5 +51,6 @@ router.use('/transfers', transfersRouter);
 router.use('/returns', returnsRouter);
 router.use('/complaints', complaintsRouter);
 router.use('/loyalty', loyaltyRouter);
+router.use('/pricing', pricingRouter);
 
 export default router;
