@@ -408,6 +408,7 @@ Functional Requirements:
 
 ## 5.8 Localization
 
+
 - Store timezone shall be used for reporting and price effective windows.
 - Currency formatting shall be configurable at the UI layer.
 

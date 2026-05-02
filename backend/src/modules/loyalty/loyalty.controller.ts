@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+
 import { loyaltyService } from './loyalty.service';
 
 /**

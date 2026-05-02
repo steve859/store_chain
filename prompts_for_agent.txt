@@ -13,6 +13,7 @@ The system includes basic features such as:
 
 ## Goal
 
+
 I want to upgrade this system into a **professional mini-supermarket chain management system**, similar to Circle K.
 
 ## Tasks
