@@ -24,6 +24,7 @@ import {
 import { metricsEndpoint } from './lib/monitoring/metrics';
 import { initErrorTracking } from './lib/monitoring/errorTracking';
 import { logger } from './lib/monitoring/logger';
+import healthRoutes from './routes/health';
 
 const app = express();
 
@@ -51,14 +52,8 @@ app.use(validateInput);
 // Monitoring
 app.use(monitoringMiddleware);
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
-});
+// Health checks (liveness, readiness, full infrastructure status)
+app.use('/health', healthRoutes);
 
 // Metrics endpoint (Prometheus)
 app.get('/metrics', metricsEndpoint);
