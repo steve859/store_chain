@@ -2,7 +2,7 @@ import 'dotenv/config';
 import bcrypt from 'bcrypt';
 
 import prisma from '../src/db/prisma';
-import { Prisma } from '../src/generated/prisma';
+import { Prisma } from '@prisma/client';
 
 type Rng = () => number;
 
