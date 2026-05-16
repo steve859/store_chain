@@ -1,0 +1,137 @@
+classDiagram
+    direction LR
+
+    class CheckoutRouter {
+        +initialize()
+        +addItem()
+        +applyDiscount()
+        +checkout()
+        +processPayment()
+        +retryPayment()
+        +cancel()
+        +getCheckout()
+        +getAuditLog()
+    }
+
+    class CheckoutService {
+        +initializeCheckout()
+        +addItem()
+        +applyDiscount()
+        +checkout()
+        +processPayment()
+        +recordTransaction()
+        +retryPayment()
+        +cancel()
+    }
+
+    class CheckoutStateMachine {
+        -CheckoutContext context
+        -ICheckoutState currentState
+        -Map~CheckoutState, ICheckoutState~ states
+        +getState()
+        +getContext()
+        +getAuditLog()
+        +addItem(item)
+        +removeItem(skuId)
+        +applyDiscount(discountAmount)
+        +checkout(paymentMethod, paidAmount)
+        +processPayment(paymentResult)
+        +recordTransaction()
+        +retryPayment()
+        +cancel(reason)
+    }
+
+    class CheckoutContext {
+        +checkoutId
+        +storeId
+        +cashierId
+        +items
+        +paymentMethod
+        +totalAmount
+        +paidAmount
+        +discount
+        +tax
+        +paymentResult
+        +error
+        +transactionId
+        +createdAt
+        +updatedAt
+        +auditLog
+    }
+
+    class CartItem {
+        +skuId
+        +quantity
+        +price
+        +discountAmount
+        +subtotal
+    }
+
+    class PaymentResult {
+        +status
+        +transactionId
+        +errorCode
+        +errorMessage
+    }
+
+    class AuditLog {
+        +timestamp
+        +fromState
+        +toState
+        +action
+        +data
+    }
+
+    class CheckoutState {
+        <<enumeration>>
+        CART_OPEN
+        PAYMENT_PENDING
+        PAYMENT_PROCESSING
+        PAYMENT_FAILED
+        TRANSACTION_RECORDING
+        COMPLETED
+        CANCELLED
+    }
+
+    class ICheckoutState {
+        <<interface>>
+        +canTransitionTo(targetState)
+        +onEnter(context)
+        +onExit(context)
+        +addItem(context, item)
+        +removeItem(context, skuId)
+        +applyDiscount(context, discountAmount)
+        +initiatePayment(context, paymentMethod, paidAmount)
+        +processPayment(context, paymentResult)
+        +recordTransaction(context)
+        +cancel(context, reason)
+        +retry(context)
+    }
+
+    class CartOpenState
+    class PaymentPendingState
+    class PaymentProcessingState
+    class PaymentFailedState
+    class TransactionRecordingState
+    class CompletedState
+    class CancelledState
+
+    CheckoutRouter --> CheckoutService : uses
+    CheckoutService --> CheckoutStateMachine : manages
+    CheckoutStateMachine o-- CheckoutContext : context
+    CheckoutStateMachine --> ICheckoutState : currentState
+    CheckoutStateMachine --> CheckoutState : uses
+
+    CheckoutContext o-- CartItem : items
+    CheckoutContext o-- PaymentResult : paymentResult
+    CheckoutContext o-- AuditLog : auditLog
+
+    ICheckoutState <|.. CartOpenState
+    ICheckoutState <|.. PaymentPendingState
+    ICheckoutState <|.. PaymentProcessingState
+    ICheckoutState <|.. PaymentFailedState
+    ICheckoutState <|.. TransactionRecordingState
+    ICheckoutState <|.. CompletedState
+    ICheckoutState <|.. CancelledState
+
+    note for CheckoutStateMachine "Transitions:\nCART_OPEN -> PAYMENT_PENDING -> PAYMENT_PROCESSING -> TRANSACTION_RECORDING -> COMPLETED\nFailure: PAYMENT_PROCESSING -> PAYMENT_FAILED -> PAYMENT_PENDING (retry)\nCancel: any non-terminal -> CANCELLED"

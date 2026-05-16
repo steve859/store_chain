@@ -18,3 +18,5 @@
 
 # Local pgAdmin data (docker volume)
 pgadmin-data/
+
+ai_gen_docs/

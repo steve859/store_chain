@@ -11,7 +11,10 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
-    "test": "jest"
+    "test": "jest",
+    "test:load": "ts-node --files tests/load.test.ts",
+    "migrate": "npx prisma migrate dev",
+    "migrate:deploy": "npx prisma migrate deploy"
   },
   "repository": {
     "type": "git",
@@ -39,6 +42,7 @@
     "bcrypt": "^6.0.0",
     "bull": "^4.16.5",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.4.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.4.1",

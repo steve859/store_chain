@@ -120,6 +120,9 @@ model product_variants {
   stock_movements      stock_movements[]
   store_transfer_items store_transfer_items[]
   variant_prices        variant_prices[]
+  pricing_rules        pricing_rules[]
+  pricing_history      pricing_history[]
+  demand_metrics       demand_metrics[]
 
   @@unique([product_id, variant_code])
   @@index([barcode], map: "idx_variants_barcode")
@@ -318,6 +321,11 @@ model stores {
   store_transfers_store_transfers_from_store_idTostores store_transfers[] @relation("store_transfers_from_store_idTostores")
   store_transfers_store_transfers_to_store_idTostores   store_transfers[] @relation("store_transfers_to_store_idTostores")
   users                                                 users[]
+  loyalty_customers                                     loyalty_customers[]
+  pricing_rules                                         pricing_rules[]
+  pricing_history                                       pricing_history[]
+  demand_metrics                                        demand_metrics[]
+  competitor_prices                                     competitor_prices[]
 }
 
 model suppliers {
@@ -393,6 +401,8 @@ model categories {
   parent     categories? @relation("categories_parent", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
   children   categories[] @relation("categories_parent")
   products   products[]
+  pricing_rules pricing_rules[]
+  demand_metrics demand_metrics[]
 
   @@index([parent_id], map: "idx_categories_parent")
   @@index([name], map: "idx_categories_name")
@@ -555,4 +565,187 @@ model cash_movements {
 
   @@index([store_id, created_at], map: "idx_cash_movements_store_created_at")
   @@index([shift_id], map: "idx_cash_movements_shift")
+}
+
+// Phase 2: Loyalty Program Models
+
+model loyalty_customers {
+  id                        String    @id @default(cuid())
+  store_id                  Int
+  email                     String    @unique
+  phone                     String?
+  first_name                String?
+  last_name                 String?
+  tier                      String    @default("bronze") // bronze, silver, gold, platinum
+  points_balance            BigInt    @default(0)
+  lifetime_spend            Decimal   @default(0) @db.Decimal(18, 2)
+  lifetime_points_earned    BigInt    @default(0)
+  lifetime_points_redeemed  BigInt    @default(0)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @updatedAt @db.Timestamptz(6)
+  last_purchase_at          DateTime? @db.Timestamptz(6)
+
+  stores                    stores                    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  loyalty_transactions      loyalty_transactions[]
+  loyalty_redemptions       loyalty_redemptions[]
+
+  @@unique([store_id, email])
+  @@index([store_id], map: "idx_loyalty_customers_store")
+  @@index([email], map: "idx_loyalty_customers_email")
+  @@index([tier], map: "idx_loyalty_customers_tier")
+}
+
+model loyalty_transactions {
+  id                  String    @id @default(cuid())
+  loyalty_customer_id String
+  type                String    // earn, redeem, expire, bonus, adjustment
+  points_amount       BigInt
+  reference_type      String?   // order, promotion, manual, referral
+  reference_id        String?
+  description         String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  loyalty_customers   loyalty_customers @relation(fields: [loyalty_customer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([loyalty_customer_id], map: "idx_loyalty_transactions_customer")
+  @@index([created_at], map: "idx_loyalty_transactions_created")
+  @@index([reference_id], map: "idx_loyalty_transactions_reference")
+}
+
+model loyalty_redemptions {
+  id                  String    @id @default(cuid())
+  loyalty_customer_id String
+  reward_id           String
+  code                String    @unique(map: "idx_loyalty_redemptions_code_unique")
+  status              String    @default("active") // active, used, expired, cancelled
+  value               Decimal   @db.Decimal(12, 2)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  redeemed_at         DateTime? @db.Timestamptz(6)
+  expires_at          DateTime  @db.Timestamptz(6)
+
+  loyalty_customers   loyalty_customers @relation(fields: [loyalty_customer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([loyalty_customer_id], map: "idx_loyalty_redemptions_customer")
+  @@index([status], map: "idx_loyalty_redemptions_status")
+  @@index([expires_at], map: "idx_loyalty_redemptions_expires")
+}
+
+model loyalty_offers {
+  id                  String    @id @default(cuid())
+  loyalty_customer_id String?
+  store_id            Int?
+  offer_type          String    // category_discount, bonus_points, free_item, threshold_bonus
+  category            String?
+  discount_percent    Decimal?  @db.Decimal(5, 2)
+  bonus_multiplier    Int       @default(1)
+  min_purchase        Decimal?  @db.Decimal(12, 2)
+  description         String
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at          DateTime
+  is_used             Boolean   @default(false)
+
+  @@index([loyalty_customer_id], map: "idx_loyalty_offers_customer")
+  @@index([store_id], map: "idx_loyalty_offers_store")
+  @@index([expires_at], map: "idx_loyalty_offers_expires")
+}
+
+// Phase 2.2: Dynamic Pricing Models
+
+model pricing_rules {
+  id                    String    @id @default(cuid())
+  store_id              Int
+  product_variant_id    Int?
+  category_id           Int?
+  rule_name             String
+  rule_type             String    // fixed, percentage, demand_based, competitor_based, time_based
+  base_price            Decimal   @db.Decimal(14, 2)
+  min_price             Decimal?  @db.Decimal(14, 2)
+  max_price             Decimal?  @db.Decimal(14, 2)
+  adjustment_value      Decimal?  @db.Decimal(5, 2)  // percentage or fixed amount
+  adjustment_type       String?   // percentage, fixed_amount
+  condition_type        String?   // demand_level, inventory_level, day_of_week, season
+  condition_value       String?   // JSON: {"demand": "high", "threshold": 80}
+  priority              Int       @default(0)
+  is_active             Boolean   @default(true)
+  effective_from        DateTime  @db.Timestamptz(6)
+  effective_until       DateTime? @db.Timestamptz(6)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
+
+  stores                stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants      product_variants? @relation(fields: [product_variant_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  categories            categories? @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  pricing_history       pricing_history[]
+
+  @@unique([store_id, product_variant_id, category_id, rule_type])
+  @@index([store_id], map: "idx_pricing_rules_store")
+  @@index([is_active], map: "idx_pricing_rules_active")
+  @@index([effective_from], map: "idx_pricing_rules_effective")
+}
+
+model pricing_history {
+  id                  String    @id @default(cuid())
+  pricing_rule_id     String
+  product_variant_id  Int?
+  store_id            Int
+  old_price           Decimal   @db.Decimal(14, 2)
+  new_price           Decimal   @db.Decimal(14, 2)
+  price_change_percent Decimal? @db.Decimal(5, 2)
+  reason              String    // rule_applied, manual_override, promotion_ended
+  triggered_by        String?   // rule_id, user_id
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  pricing_rules       pricing_rules @relation(fields: [pricing_rule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants    product_variants? @relation(fields: [product_variant_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  stores              stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([pricing_rule_id], map: "idx_pricing_history_rule")
+  @@index([product_variant_id], map: "idx_pricing_history_variant")
+  @@index([store_id], map: "idx_pricing_history_store")
+  @@index([created_at], map: "idx_pricing_history_created")
+}
+
+model demand_metrics {
+  id                  String    @id @default(cuid())
+  store_id            Int
+  product_variant_id  Int?
+  category_id         Int?
+  day_of_week         Int       // 0-6 (Sunday-Saturday)
+  hour_of_day         Int?      // 0-23
+  demand_level        Int       // 0-100 (percentage)
+  sales_count_24h     Int       @default(0)
+  sales_count_7d      Int       @default(0)
+  inventory_level     Decimal   @db.Decimal(14, 2)
+  inventory_turnover  Decimal?  @db.Decimal(5, 2)  // units per day
+  price_elasticity    Decimal?  @db.Decimal(3, 2)  // -2.0 to 0
+  last_calculated_at  DateTime  @default(now()) @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  stores              stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants    product_variants? @relation(fields: [product_variant_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  categories          categories? @relation(fields: [category_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([store_id, product_variant_id, category_id, day_of_week, hour_of_day])
+  @@index([store_id], map: "idx_demand_metrics_store")
+  @@index([demand_level], map: "idx_demand_metrics_level")
+}
+
+model competitor_prices {
+  id                  String    @id @default(cuid())
+  store_id            Int
+  product_sku         String
+  competitor_name     String
+  competitor_price    Decimal   @db.Decimal(14, 2)
+  our_price           Decimal   @db.Decimal(14, 2)
+  price_difference    Decimal   @db.Decimal(14, 2)
+  price_diff_percent  Decimal?  @db.Decimal(5, 2)
+  is_competitive      Boolean   @default(false)
+  scraped_at          DateTime  @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  stores              stores    @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([store_id], map: "idx_competitor_prices_store")
+  @@index([product_sku], map: "idx_competitor_prices_sku")
+  @@index([scraped_at], map: "idx_competitor_prices_scraped")
 }

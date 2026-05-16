@@ -41,7 +41,7 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // Don't rate limit health checks
-    return req.path === '/health';
+    return req.path === '/health' || req.path.startsWith('/health/');
   },
   handler: (req, res) => {
     logger.warn({
