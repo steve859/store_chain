@@ -329,7 +329,7 @@ Archive transaction records
     ↓
 Update daily store performance dashboard
     ↓
-Trigger end-of-day sync to central system
+Trigger end-of-day sync to central system 
     ↓
 Generate reconciliation report for manager review
 ```
@@ -337,6 +337,18 @@ Generate reconciliation report for manager review
 ---
 
 ### 2.4 Use Cases and Actors
+- System and Management
+![alt text](artifact/diagram/use_case/system_and_management.png)
+- Inventory and Product Management
+![alt text](artifact/diagram/use_case/inventory_and_product_management.png)
+- Store and POS Management
+![alt text](artifact/diagram/use_case/store_and_pos_management.png)
+- Loyalty Program
+![alt text](artifact/diagram/use_case/loyalty_program.png)
+- Reporting and Analytics
+![alt text](artifact/diagram/use_case/reporting_and_analytics.png)
+
+
 
 #### 2.4.1 Actors Definition
 
