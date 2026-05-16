@@ -21,6 +21,38 @@
 
 /**
  * @openapi
+ * /health/ready:
+ *   get:
+ *     summary: Readiness check
+ *     description: Verifies required dependencies (database and Redis) before serving traffic.
+ *     tags:
+ *       - System
+ *     responses:
+ *       200:
+ *         description: Service is ready
+ *       503:
+ *         description: Dependencies are not ready
+ */
+
+/**
+ * @openapi
+ * /health/full:
+ *   get:
+ *     summary: Full infrastructure health check
+ *     description: Returns component-level health for API, database, Redis, replication, and backups.
+ *     tags:
+ *       - System
+ *     responses:
+ *       200:
+ *         description: All components healthy
+ *       503:
+ *         description: One or more components degraded
+ *       500:
+ *         description: One or more components critical
+ */
+
+/**
+ * @openapi
  * /api/v1/sales:
  *   get:
  *     summary: List POS sales orders
@@ -69,6 +101,74 @@
  *         description: Sale detail
  *       404:
  *         description: Not found
+ */
+
+/**
+ * @openapi
+ * /api/v1/maintenance/status:
+ *   get:
+ *     summary: Infrastructure status
+ *     tags:
+ *       - Maintenance
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Infrastructure healthy
+ *       503:
+ *         description: Infrastructure degraded
+ *       500:
+ *         description: Infrastructure critical or check failed
+ */
+
+/**
+ * @openapi
+ * /api/v1/maintenance/backup:
+ *   post:
+ *     summary: Trigger on-demand database backup
+ *     tags:
+ *       - Maintenance
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Backup created
+ *       500:
+ *         description: Backup failed
+ */
+
+/**
+ * @openapi
+ * /api/v1/maintenance/cleanup:
+ *   post:
+ *     summary: Trigger cleanup of old operational data
+ *     tags:
+ *       - Maintenance
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Cleanup completed
+ *       500:
+ *         description: Cleanup failed
+ */
+
+/**
+ * @openapi
+ * /api/v1/maintenance/disaster-recovery/drill:
+ *   post:
+ *     summary: Run disaster-recovery drill checks
+ *     tags:
+ *       - Maintenance
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Drill passed
+ *       503:
+ *         description: Drill failed due to missing backup or dependency issue
+ *       500:
+ *         description: Drill execution failed
  */
 
 /**
