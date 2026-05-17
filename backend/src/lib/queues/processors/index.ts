@@ -8,6 +8,10 @@ import './cacheProcessor';
 import './inventorySyncProcessor';
 import './pricingBatchProcessor';
 import './variantPreloadProcessor';
+import { registerLoyaltyProcessors } from './loyaltyAccrualProcessor';
+
+// Register loyalty processors on startup
+registerLoyaltyProcessors();
 
 // More processors will be added as needed:
 // import './reportProcessor';

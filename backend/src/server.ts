@@ -9,6 +9,7 @@ import { startScheduler } from './modules/cron/scheduler';
 import { closeQueues } from './lib/queues/jobQueue';
 import { logger } from './lib/monitoring/logger';
 import { pricingEngine } from './lib/cache/pricingEngine';
+import { warmupPromotionCache } from './lib/cache/promotionRules';
 
 // Import all job processors to register them
 import './lib/queues/processors';
@@ -43,6 +44,15 @@ const startServer = async () => {
     .catch(error => {
       logger.warn({
         message: 'Pricing engine warmup failed on startup',
+        errorMessage: error.message,
+      });
+    });
+
+  // Warmup promotion cache asynchronously
+  warmupPromotionCache()
+    .catch(error => {
+      logger.warn({
+        message: 'Promotion cache warmup failed on startup',
         errorMessage: error.message,
       });
     });
