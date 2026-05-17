@@ -7,6 +7,7 @@ import './emailProcessor';
 import './cacheProcessor';
 import './inventorySyncProcessor';
 import './pricingBatchProcessor';
+import './variantPreloadProcessor';
 
 // More processors will be added as needed:
 // import './reportProcessor';

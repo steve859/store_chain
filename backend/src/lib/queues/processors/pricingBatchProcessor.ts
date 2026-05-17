@@ -1,5 +1,5 @@
 import { Job } from 'bull';
-import { registerProcessor, JobType } from '../jobQueue';
+import { registerProcessor, JobType, enqueueJob } from '../jobQueue';
 import prisma from '../../../db/prisma';
 import { getRulesFromCache } from '../../cache/pricingRules';
 import { logger } from '../../monitoring/logger';
@@ -253,6 +253,26 @@ const processPricingBatch = async (
       failed: result.failed,
       skipped: result.skipped,
     });
+
+    // Enqueue variant preload to refresh L1 cache after pricing updates
+    try {
+      await enqueueJob(
+        JobType.PRELOAD_VARIANTS,
+        { storeId, skipIfCached: false },
+        { priority: 7, delay: 1000 } // Higher priority, 1s delay to let DB settle
+      );
+      logger.info({
+        message: 'Variant preload job enqueued after pricing batch',
+        storeId,
+        jobId: job.id,
+      });
+    } catch (enqueuError: any) {
+      logger.warn({
+        message: 'Failed to enqueue variant preload',
+        storeId,
+        errorMessage: enqueuError.message,
+      });
+    }
   } catch (error) {
     logger.error({
       message: 'Pricing batch job failed',

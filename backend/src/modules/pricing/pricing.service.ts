@@ -1,5 +1,6 @@
 import prisma from '../../db/prisma';
 import { logger } from '../../lib/monitoring/logger';
+import { pricingEngine } from '../../lib/cache/pricingEngine';
 
 /**
  * Dynamic Pricing Engine Service
@@ -80,6 +81,9 @@ export async function createPricingRule(rule: PricingRule) {
       storeId: rule.storeId,
       ruleType: rule.ruleType,
     });
+
+    // Invalidate pricing cache - new rule affects all pricing lookups
+    await pricingEngine.invalidatePricingCache(rule.storeId);
 
     return {
       id: created.id,

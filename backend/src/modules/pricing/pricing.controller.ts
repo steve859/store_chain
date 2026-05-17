@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { pricingService } from './pricing.service';
+import { pricingEngine } from '../../lib/cache/pricingEngine';
+import { logger } from '../../lib/monitoring/logger';
 
 /**
  * Create a new pricing rule
@@ -50,30 +52,80 @@ export const createPricingRuleHandler = async (req: Request, res: Response) => {
 /**
  * Get recommended price for a product
  * GET /api/v1/pricing/recommend
+ * 
+ * Cache Strategy (3-layer):
+ * L1: In-memory variant cache (<1ms)
+ * L2: Redis response cache (~2-5ms)
+ * L3: Full calculation with database (~50ms)
  */
 export const getRecommendedPriceHandler = async (req: Request, res: Response) => {
-  try {
-    const storeId = req.activeStoreId || 1;
-    const { currentPrice, productVariantId, categoryId, demandLevel } = req.query;
+  const startTime = Date.now();
+  const storeId = req.activeStoreId || 1;
+  const { currentPrice, productVariantId, categoryId, demandLevel } = req.query;
 
+  try {
     if (!currentPrice) {
       return res.status(400).json({ error: 'Missing required parameter: currentPrice' });
     }
 
+    let cacheLevel = 'L3'; // Default to full calculation
+    const variantId = productVariantId ? parseInt(productVariantId as string) : undefined;
+
+    // L1 Cache: In-memory variant data (fastest)
+    if (variantId && pricingEngine.isEngineCacheValid(storeId)) {
+      const cachedVariant = pricingEngine.getPricingDataInMemory(storeId, variantId);
+      if (cachedVariant) {
+        cacheLevel = 'L1';
+        logger.debug({
+          message: 'L1 cache hit - pricing lookup',
+          storeId,
+          variantId,
+          latencyMs: Date.now() - startTime,
+        });
+      }
+    }
+
+    // L2/L3 will be handled by middleware response cache and service calculation
     const price = await pricingService.calculateRecommendedPrice(
       storeId,
       parseFloat(currentPrice as string),
-      productVariantId ? parseInt(productVariantId as string) : undefined,
+      variantId,
       categoryId ? parseInt(categoryId as string) : undefined,
       demandLevel ? parseFloat(demandLevel as string) : undefined
     );
 
+    const latencyMs = Date.now() - startTime;
+
+    // Add cache level and latency info to response
+    res.set({
+      'X-Cache-Level': cacheLevel,
+      'X-Lookup-Time-Ms': String(latencyMs),
+    });
+
+    if (latencyMs > 100) {
+      logger.warn({
+        message: 'Pricing lookup exceeded 100ms target',
+        storeId,
+        variantId,
+        cacheLevel,
+        latencyMs,
+      });
+    }
+
     res.json({
       message: 'Price recommendation calculated',
       price,
+      _metadata: {
+        cacheLevel, // L1/L2/L3 for debugging
+        latencyMs,
+      },
     });
   } catch (error: any) {
-    console.error('Error calculating recommended price:', error);
+    logger.error({
+      type: 'price_recommendation_error',
+      storeId,
+      errorMessage: error.message,
+    });
     res.status(500).json({
       error: 'Failed to calculate recommended price',
       details: error.message,

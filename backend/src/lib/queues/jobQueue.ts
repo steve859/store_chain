@@ -31,6 +31,7 @@ export enum JobType {
   INVALIDATE_CACHE = 'invalidate_cache',
   RECONCILE_PAYMENTS = 'reconcile_payments',
   CALCULATE_PRICING = 'calculate_pricing',
+  PRELOAD_VARIANTS = 'preload_variants',
 }
 
 // Create queues for different job types
@@ -57,6 +58,9 @@ const queues: Record<JobType, Queue> = {
     redis: redisConfig,
   }),
   [JobType.CALCULATE_PRICING]: new Bull(JobType.CALCULATE_PRICING, {
+    redis: redisConfig,
+  }),
+  [JobType.PRELOAD_VARIANTS]: new Bull(JobType.PRELOAD_VARIANTS, {
     redis: redisConfig,
   }),
 };

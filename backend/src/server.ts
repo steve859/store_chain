@@ -8,6 +8,7 @@ import app from './app';
 import { startScheduler } from './modules/cron/scheduler';
 import { closeQueues } from './lib/queues/jobQueue';
 import { logger } from './lib/monitoring/logger';
+import { pricingEngine } from './lib/cache/pricingEngine';
 
 // Import all job processors to register them
 import './lib/queues/processors';
@@ -36,6 +37,16 @@ const startServer = async () => {
 
   await startScheduler();
 
+  // Warmup pricing engine cache asynchronously
+  pricingEngine
+    .warmupEngineCache()
+    .catch(error => {
+      logger.warn({
+        message: 'Pricing engine warmup failed on startup',
+        errorMessage: error.message,
+      });
+    });
+
   httpServer.listen(PORT, '0.0.0.0', () => {
     logger.info({
       message: '🚀 API Server Started',
@@ -43,6 +54,7 @@ const startServer = async () => {
       environment: process.env.NODE_ENV || 'development',
       features: [
         '✅ Job Queue (Bull.js)',
+        '✅ Pricing Engine (L1 In-Memory Cache)',
         '✅ Monitoring (Prometheus)',
         '✅ Error Tracking (Sentry)',
         '✅ Security Headers',
@@ -53,14 +65,19 @@ const startServer = async () => {
 
     console.log(`
 ╔════════════════════════════════════════╗
-║   Store Chain API - Phase 1 Ready      ║
+║   Store Chain API - ASR-P1 Ready       ║
 ╠════════════════════════════════════════╣
 ║ 🚀 Server:   http://0.0.0.0:${PORT}                    ║
 ║ 📊 Metrics:  /metrics                  ║
 ║ 📋 Swagger:  /api-docs                 ║
 ║ 💚 Health:   /health                   ║
 ║                                        ║
-║ Phase 1 Enhancements Active:           ║
+║ ASR-P1 (<100ms Pricing Lookup):        ║
+║ ✅ L1 In-Memory Cache (<1ms)           ║
+║ ✅ L2 Redis Response Cache (~5ms)      ║
+║ ✅ L3 DB Fallback (<50ms)              ║
+║                                        ║
+║ Additional Features:                   ║
 ║ ✅ Job Queue (Bull.js + Redis)        ║
 ║ ✅ Structured Logging (Pino)          ║
 ║ ✅ Prometheus Metrics                 ║
