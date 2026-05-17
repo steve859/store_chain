@@ -213,3 +213,51 @@ export const recordCompetitorPriceHandler = async (req: Request, res: Response) 
   }
 };
 
+
+/**
+ * Calculate batch pricing for a store (ASR-S3)
+ * POST /api/v1/pricing/calculate-batch
+ * Admin-only endpoint to manually trigger batch pricing recalculation
+ */
+export const calculatePricingBatchHandler = async (req: Request, res: Response) => {
+  try {
+    const { enqueueJob, JobType } = await import('../../lib/queues/jobQueue');
+    const storeId = req.activeStoreId || Number(req.headers['x-store-id'] || 1);
+    const { limit = 1000, offset = 0, forceRecalculate = false } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({
+        error: 'Store ID is required',
+      });
+    }
+
+    // Enqueue batch pricing job
+    const job = await enqueueJob(
+      JobType.CALCULATE_PRICING,
+      {
+        storeId,
+        limit,
+        offset,
+        forceRecalculate,
+      },
+      {
+        priority: parseInt(process.env.PRICING_JOB_PRIORITY || '5', 10),
+        removeOnComplete: true,
+      }
+    );
+
+    res.status(202).json({
+      message: 'Batch pricing calculation enqueued',
+      jobId: job.id,
+      storeId,
+      limit,
+      offset,
+    });
+  } catch (error: any) {
+    console.error('Error enqueueing batch pricing job:', error);
+    res.status(500).json({
+      error: 'Failed to enqueue batch pricing job',
+      details: error.message,
+    });
+  }
+};
