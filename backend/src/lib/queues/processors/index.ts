@@ -5,10 +5,10 @@
 
 import './emailProcessor';
 import './cacheProcessor';
+import './inventorySyncProcessor';
 
 // More processors will be added as needed:
 // import './reportProcessor';
-// import './inventorySyncProcessor';
 // import './refundProcessor';
 
 export default {};

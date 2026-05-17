@@ -5,6 +5,17 @@ export interface ServerToClientEvents {
   
   // Báo tồn kho thấp
   low_inventory_alert: (data: { productId: number; productName: string; currentQty: number }) => void;
+  
+  // Báo cập nhật tồn kho (real-time sync across stores)
+  inventory_updated: (data: {
+    variantId: number;
+    quantity: string;
+    reserved: string;
+    change: number;
+    movementType: string;
+    reason: string;
+    timestamp: string;
+  }) => void;
 }
 
 // 2. Sự kiện từ Client gửi lên Server (On)

@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import { setupSocketHandlers } from './events/socket';
+import { ioMiddleware } from './middlewares/io.middleware';
 import dotenv from 'dotenv';
 import app from './app';
 import { startScheduler } from './modules/cron/scheduler';
@@ -31,6 +32,7 @@ const startServer = async () => {
 
   setupSocketHandlers(io);
   app.set('io', io);
+  app.use(ioMiddleware(io));
 
   await startScheduler();
 

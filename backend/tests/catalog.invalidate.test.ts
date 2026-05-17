@@ -19,6 +19,17 @@ jest.mock('../src/db/prisma', () => {
   };
 });
 
+jest.mock('../src/lib/queues/jobQueue', () => {
+  return {
+    __esModule: true,
+    enqueueJob: jest.fn(async () => undefined),
+    registerProcessor: jest.fn(),
+    JobType: {
+      SYNC_INVENTORY: 'sync_inventory',
+    },
+  };
+});
+
 import app from '../src/app';
 import prisma from '../src/db/prisma';
 import { invalidateCatalogCache } from '../src/lib/cache/catalog';
