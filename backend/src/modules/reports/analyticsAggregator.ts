@@ -12,7 +12,7 @@ class AnalyticsAggregator {
       try {
         await this.handleCheckoutCompleted(event);
       } catch (error) {
-        logger.error(`[AnalyticsAggregator] Failed to aggregate checkout ${event.transactionId}`, error);
+        logger.error({ message: `[AnalyticsAggregator] Failed to aggregate checkout ${event.transactionId}`, error: String(error) });
       }
     });
     logger.info('[AnalyticsAggregator] Started listening to streaming events for OLAP projections');

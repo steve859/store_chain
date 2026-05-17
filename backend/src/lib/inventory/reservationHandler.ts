@@ -6,7 +6,20 @@
 
 import { logger } from '../monitoring/logger';
 import { enqueueJob, JobType } from '../queues/jobQueue';
-import { redisClient } from '../cache/redis';
+import { getRedis } from '../cache/redis';
+
+// Helper: get redis client or throw
+function getRedisClient() {
+  const client = getRedis();
+  if (!client) throw new Error('Redis not available for inventory reservation');
+  return client;
+}
+const redisClient = { 
+  get: (...args: Parameters<ReturnType<typeof getRedis> extends null ? never : Exclude<ReturnType<typeof getRedis>, null>['get']>) => getRedisClient().get(...args),
+  setex: (...args: any[]) => getRedisClient().setex(...(args as [any, any, any])),
+  del: (...args: any[]) => getRedisClient().del(...(args as [any])),
+  keys: (...args: any[]) => getRedisClient().keys(...(args as [any])),
+};
 
 /**
  * Inventory reservation status

@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { logger } from '../monitoring/logger';
+import { logger } from '../lib/monitoring/logger';
 
 interface CheckoutMetrics {
   startTime: number;

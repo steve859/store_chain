@@ -7,7 +7,7 @@
 
 import { Prisma } from '@prisma/client';
 import prisma from '../../db/prisma';
-import { logger } from '../../utils/logger';
+import { logger } from '../../lib/monitoring/logger';
 import {
   CheckoutStateMachine,
   CheckoutState,

@@ -109,6 +109,7 @@ const startServer = async () => {
 ║ ✅ PII Encryption (ASR-SEC5)               ║
 ║ ✅ Optimistic Locking (ASR-R3)             ║
 ║ ✅ Terraform IaC (ASR-R1/R2)               ║
+║ ✅ CI/CD Blue-Green Deploy (ASR-O2)         ║
 ╚════════════════════════════════════════════╝
     `);
   });

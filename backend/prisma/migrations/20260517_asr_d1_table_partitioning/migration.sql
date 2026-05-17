@@ -2,18 +2,17 @@
 -- PostgreSQL Native Table Partitioning (RANGE by created_at, monthly)
 --
 -- Tables partitioned:
---   1. invoices           – core transaction table
---   2. invoice_items      – line items (inherits partition key via invoice_id)
---   3. stock_movements    – inventory change log
---   4. audit_logs         – system audit trail
---   5. loyalty_transactions – loyalty point history
+--   1. invoices              – core transaction table
+--   2. stock_movements       – inventory change log
+--   3. audit_logs            – system audit trail
+--   4. loyalty_transactions  – loyalty point history
 --
 -- Strategy: RANGE partitioning on created_at (monthly).
--- Prisma continues to query the parent table transparently; PostgreSQL
+-- Prisma queries the parent table transparently; PostgreSQL
 -- routes reads/writes to the correct child partition automatically.
 --
--- IMPORTANT: Run this migration ONLY on a maintenance window.
---            It restructures tables in-place.
+-- NOTE: Column definitions are aligned EXACTLY with the actual DB schema
+-- to prevent INSERT SELECT type mismatches.
 
 -- =====================================================================
 -- Helper: Function to auto-create monthly partitions
@@ -32,7 +31,6 @@ BEGIN
     end_date   := start_date + INTERVAL '1 month';
     partition_name := parent_table || '_y' || TO_CHAR(start_date, 'YYYY') || '_m' || TO_CHAR(start_date, 'MM');
 
-    -- Check if partition already exists
     IF NOT EXISTS (
         SELECT 1 FROM pg_class WHERE relname = partition_name
     ) THEN
@@ -47,56 +45,69 @@ $$ LANGUAGE plpgsql;
 
 
 -- =====================================================================
--- 1. INVOICES  (id INT, created_at TIMESTAMPTZ)
+-- 1. INVOICES  (id INT serial, created_at TIMESTAMPTZ)
+--    Columns from DB: id(int4), invoice_number(text), store_id(int4),
+--    customer_id(int4), subtotal(numeric), tax(numeric), discount(numeric),
+--    total(numeric), payment_method(text), created_by(int4), created_at(timestamptz)
 -- =====================================================================
--- Step 1a: Rename old table
 ALTER TABLE invoices RENAME TO invoices_old;
 
--- Step 1b: Create partitioned parent
+-- Drop FK constraints referencing invoices (invoice_items, returns)
+ALTER TABLE invoice_items DROP CONSTRAINT IF EXISTS invoice_items_invoice_id_fkey;
+ALTER TABLE returns DROP CONSTRAINT IF EXISTS returns_invoice_id_fkey;
+
 CREATE TABLE invoices (
     id             SERIAL,
-    invoice_number TEXT UNIQUE,
+    invoice_number TEXT,
     store_id       INT,
     customer_id    INT,
-    subtotal       NUMERIC(18,2) DEFAULT 0,
-    tax            NUMERIC(14,2) DEFAULT 0,
-    discount       NUMERIC(14,2) DEFAULT 0,
-    total          NUMERIC(18,2) DEFAULT 0 NOT NULL,
+    subtotal       NUMERIC DEFAULT 0,
+    tax            NUMERIC DEFAULT 0,
+    discount       NUMERIC DEFAULT 0,
+    total          NUMERIC DEFAULT 0 NOT NULL,
     payment_method TEXT,
     created_by     INT,
     created_at     TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    PRIMARY KEY (id, created_at)
+    PRIMARY KEY (id, created_at),
+    UNIQUE (invoice_number, created_at)
 ) PARTITION BY RANGE (created_at);
 
--- Step 1c: Create partitions for recent + future months
+SELECT create_monthly_partition('invoices', (CURRENT_DATE - INTERVAL '3 months')::DATE);
 SELECT create_monthly_partition('invoices', (CURRENT_DATE - INTERVAL '2 months')::DATE);
 SELECT create_monthly_partition('invoices', (CURRENT_DATE - INTERVAL '1 month')::DATE);
 SELECT create_monthly_partition('invoices', CURRENT_DATE);
 SELECT create_monthly_partition('invoices', (CURRENT_DATE + INTERVAL '1 month')::DATE);
 SELECT create_monthly_partition('invoices', (CURRENT_DATE + INTERVAL '2 months')::DATE);
-
--- Step 1d: Create default partition for any out-of-range data
 CREATE TABLE invoices_default PARTITION OF invoices DEFAULT;
 
--- Step 1e: Migrate existing data
-INSERT INTO invoices SELECT * FROM invoices_old;
+INSERT INTO invoices (id, invoice_number, store_id, customer_id, subtotal, tax, discount, total, payment_method, created_by, created_at)
+SELECT id, invoice_number, store_id, customer_id, subtotal, tax, discount, total, payment_method, created_by, COALESCE(created_at, NOW())
+FROM invoices_old;
 
--- Step 1f: Re-create indexes on parent (auto-propagates to partitions)
+-- Reset sequence
+SELECT setval('invoices_id_seq', COALESCE((SELECT MAX(id) FROM invoices), 0) + 1);
+
 CREATE INDEX idx_invoices_created_at_part ON invoices (created_at);
 CREATE INDEX idx_invoices_store_part ON invoices (store_id);
 CREATE INDEX idx_invoices_store_created_at_part ON invoices (store_id, created_at);
 
--- Step 1g: Re-create foreign keys
 ALTER TABLE invoices ADD CONSTRAINT fk_invoices_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE invoices ADD CONSTRAINT fk_invoices_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
 ALTER TABLE invoices ADD CONSTRAINT fk_invoices_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
 
--- Step 1h: Drop old table
+-- Re-add FK from invoice_items and returns pointing to partitioned invoices
+-- NOTE: FK to partitioned table requires unique constraint that includes partition key.
+-- invoice_items.invoice_id references invoices.id — but partitioned PK is (id, created_at).
+-- PostgreSQL cannot enforce cross-partition FK, so we skip FK recreation and rely on app-level integrity.
+
 DROP TABLE invoices_old CASCADE;
 
 
 -- =====================================================================
--- 2. STOCK_MOVEMENTS  (id BIGINT, created_at TIMESTAMPTZ)
+-- 2. STOCK_MOVEMENTS  (id BIGINT serial, created_at TIMESTAMPTZ)
+--    Columns: id(int8), store_id(int4), variant_id(int4), change(numeric),
+--    movement_type(text), reference_id(text), reason(text), created_by(int4),
+--    created_at(timestamptz)
 -- =====================================================================
 ALTER TABLE stock_movements RENAME TO stock_movements_old;
 
@@ -113,6 +124,7 @@ CREATE TABLE stock_movements (
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
+SELECT create_monthly_partition('stock_movements', (CURRENT_DATE - INTERVAL '3 months')::DATE);
 SELECT create_monthly_partition('stock_movements', (CURRENT_DATE - INTERVAL '2 months')::DATE);
 SELECT create_monthly_partition('stock_movements', (CURRENT_DATE - INTERVAL '1 month')::DATE);
 SELECT create_monthly_partition('stock_movements', CURRENT_DATE);
@@ -120,20 +132,22 @@ SELECT create_monthly_partition('stock_movements', (CURRENT_DATE + INTERVAL '1 m
 SELECT create_monthly_partition('stock_movements', (CURRENT_DATE + INTERVAL '2 months')::DATE);
 CREATE TABLE stock_movements_default PARTITION OF stock_movements DEFAULT;
 
-INSERT INTO stock_movements SELECT * FROM stock_movements_old;
+INSERT INTO stock_movements (id, store_id, variant_id, change, movement_type, reference_id, reason, created_by, created_at)
+SELECT id, store_id, variant_id, change, movement_type, reference_id, reason, created_by, COALESCE(created_at, NOW())
+FROM stock_movements_old;
+
+SELECT setval('stock_movements_id_seq', COALESCE((SELECT MAX(id) FROM stock_movements), 0) + 1);
 
 CREATE INDEX idx_stock_movements_store_time_part ON stock_movements (store_id, created_at);
 CREATE INDEX idx_stock_movements_variant_part ON stock_movements (variant_id);
-
-ALTER TABLE stock_movements ADD CONSTRAINT fk_sm_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE stock_movements ADD CONSTRAINT fk_sm_store FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE SET NULL;
-ALTER TABLE stock_movements ADD CONSTRAINT fk_sm_variant FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE SET NULL;
 
 DROP TABLE stock_movements_old CASCADE;
 
 
 -- =====================================================================
--- 3. AUDIT_LOGS  (id BIGINT, created_at TIMESTAMPTZ)
+-- 3. AUDIT_LOGS  (id BIGINT serial, created_at TIMESTAMPTZ)
+--    Columns: id(int8), user_id(int4), action(text), object_type(text),
+--    object_id(text), payload(jsonb), created_at(timestamptz)
 -- =====================================================================
 ALTER TABLE audit_logs RENAME TO audit_logs_old;
 
@@ -148,6 +162,7 @@ CREATE TABLE audit_logs (
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
+SELECT create_monthly_partition('audit_logs', (CURRENT_DATE - INTERVAL '3 months')::DATE);
 SELECT create_monthly_partition('audit_logs', (CURRENT_DATE - INTERVAL '2 months')::DATE);
 SELECT create_monthly_partition('audit_logs', (CURRENT_DATE - INTERVAL '1 month')::DATE);
 SELECT create_monthly_partition('audit_logs', CURRENT_DATE);
@@ -155,18 +170,23 @@ SELECT create_monthly_partition('audit_logs', (CURRENT_DATE + INTERVAL '1 month'
 SELECT create_monthly_partition('audit_logs', (CURRENT_DATE + INTERVAL '2 months')::DATE);
 CREATE TABLE audit_logs_default PARTITION OF audit_logs DEFAULT;
 
-INSERT INTO audit_logs SELECT * FROM audit_logs_old;
+INSERT INTO audit_logs (id, user_id, action, object_type, object_id, payload, created_at)
+SELECT id, user_id, action, object_type, object_id, payload, COALESCE(created_at, NOW())
+FROM audit_logs_old;
+
+SELECT setval('audit_logs_id_seq', COALESCE((SELECT MAX(id) FROM audit_logs), 0) + 1);
 
 CREATE INDEX idx_audit_logs_user_part ON audit_logs (user_id);
 CREATE INDEX idx_audit_logs_created_at_part ON audit_logs (created_at);
-
-ALTER TABLE audit_logs ADD CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 DROP TABLE audit_logs_old CASCADE;
 
 
 -- =====================================================================
--- 4. LOYALTY_TRANSACTIONS  (id TEXT/CUID, created_at TIMESTAMPTZ)
+-- 4. LOYALTY_TRANSACTIONS  (id TEXT, created_at TIMESTAMPTZ)
+--    Columns: id(text), loyalty_customer_id(text), type(text),
+--    points_amount(int8), reference_type(text), reference_id(text),
+--    description(text), created_at(timestamptz)
 -- =====================================================================
 ALTER TABLE loyalty_transactions RENAME TO loyalty_transactions_old;
 
@@ -182,6 +202,7 @@ CREATE TABLE loyalty_transactions (
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
+SELECT create_monthly_partition('loyalty_transactions', (CURRENT_DATE - INTERVAL '3 months')::DATE);
 SELECT create_monthly_partition('loyalty_transactions', (CURRENT_DATE - INTERVAL '2 months')::DATE);
 SELECT create_monthly_partition('loyalty_transactions', (CURRENT_DATE - INTERVAL '1 month')::DATE);
 SELECT create_monthly_partition('loyalty_transactions', CURRENT_DATE);
@@ -189,13 +210,12 @@ SELECT create_monthly_partition('loyalty_transactions', (CURRENT_DATE + INTERVAL
 SELECT create_monthly_partition('loyalty_transactions', (CURRENT_DATE + INTERVAL '2 months')::DATE);
 CREATE TABLE loyalty_transactions_default PARTITION OF loyalty_transactions DEFAULT;
 
-INSERT INTO loyalty_transactions SELECT * FROM loyalty_transactions_old;
+INSERT INTO loyalty_transactions (id, loyalty_customer_id, type, points_amount, reference_type, reference_id, description, created_at)
+SELECT id, loyalty_customer_id, type, points_amount, reference_type, reference_id, description, COALESCE(created_at, NOW())
+FROM loyalty_transactions_old;
 
 CREATE INDEX idx_lt_customer_part ON loyalty_transactions (loyalty_customer_id);
 CREATE INDEX idx_lt_created_at_part ON loyalty_transactions (created_at);
 CREATE INDEX idx_lt_reference_part ON loyalty_transactions (reference_id);
-
-ALTER TABLE loyalty_transactions ADD CONSTRAINT fk_lt_customer
-    FOREIGN KEY (loyalty_customer_id) REFERENCES loyalty_customers(id) ON DELETE CASCADE;
 
 DROP TABLE loyalty_transactions_old CASCADE;

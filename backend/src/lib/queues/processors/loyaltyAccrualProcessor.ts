@@ -2,17 +2,19 @@
  * Loyalty Accrual Background Job Processor
  * Processes loyalty point accrual asynchronously after transaction completion
  * Prevents blocking checkout while loyalty updates process
+ *
+ * Updated to use loyalty_customers (current Prisma schema) instead of legacy loyalty_members.
  */
 
 import { Job } from 'bull';
 import { registerProcessor, JobType, enqueueJob } from '../jobQueue';
 import prisma from '../../../db/prisma';
-import { logger } from '../monitoring/logger';
+import { logger } from '../../monitoring/logger';
 
 export interface LoyaltyAccrualJobData {
   transactionId: string;
   storeId: number;
-  loyaltyMemberId: string;
+  loyaltyMemberId: string; // maps to loyalty_customers.id
   totalAmount: number;
   itemCount: number;
   timestamp: number;
@@ -39,14 +41,14 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
     const pointsPerDollar = parseFloat(process.env.LOYALTY_POINTS_PER_DOLLAR || '1');
     const pointsEarned = Math.floor(totalAmount * pointsPerDollar);
 
-    // Ensure loyalty member exists
-    const loyaltyMember = await prisma.loyalty_members.findUnique({
+    // Ensure loyalty customer exists
+    const loyaltyCustomer = await prisma.loyalty_customers.findUnique({
       where: { id: loyaltyMemberId },
     });
 
-    if (!loyaltyMember) {
+    if (!loyaltyCustomer) {
       logger.warn({
-        message: 'Loyalty member not found',
+        message: 'Loyalty customer not found',
         loyaltyMemberId,
         transactionId,
       });
@@ -57,13 +59,16 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
       };
     }
 
-    // Update loyalty points (idempotent via transactionId)
-    const transaction = await prisma.loyalty_transactions.findUnique({
-      where: { transaction_id: transactionId },
-      select: { id: true },
+    // Idempotency check — see if we already processed this transaction
+    const existing = await prisma.loyalty_transactions.findFirst({
+      where: {
+        loyalty_customer_id: loyaltyMemberId,
+        reference_id: transactionId,
+        type: 'earn',
+      },
     });
 
-    if (transaction) {
+    if (existing) {
       logger.warn({
         message: 'Loyalty accrual already processed',
         transactionId,
@@ -76,26 +81,25 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
     }
 
     // Create loyalty transaction record
-    const accrualRecord = await prisma.loyalty_transactions.create({
+    await prisma.loyalty_transactions.create({
       data: {
-        loyalty_member_id: loyaltyMemberId,
-        store_id: storeId,
-        transaction_id: transactionId,
-        transaction_type: 'purchase',
-        points_earned: pointsEarned,
-        points_redeemed: 0,
-        transaction_date: new Date(job.data.timestamp),
+        loyalty_customer_id: loyaltyMemberId,
+        type: 'earn',
+        points_amount: pointsEarned,
+        reference_type: 'order',
+        reference_id: transactionId,
+        description: `Points earned from transaction ${transactionId}`,
       },
     });
 
-    // Update loyalty member total points
-    const updatedMember = await prisma.loyalty_members.update({
+    // Update loyalty customer total points
+    const updatedCustomer = await prisma.loyalty_customers.update({
       where: { id: loyaltyMemberId },
       data: {
-        total_points: {
-          increment: pointsEarned,
-        },
-        last_purchase_date: new Date(job.data.timestamp),
+        points_balance: { increment: pointsEarned },
+        lifetime_points_earned: { increment: pointsEarned },
+        lifetime_spend: { increment: totalAmount },
+        last_purchase_at: new Date(job.data.timestamp),
       },
     });
 
@@ -103,28 +107,27 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
       message: 'Loyalty accrual processed successfully',
       transactionId,
       pointsEarned,
-      newTotal: updatedMember.total_points,
+      newBalance: Number(updatedCustomer.points_balance),
       jobId: job.id,
       durationMs: Date.now() - startTime,
     });
 
     // Check if tier upgrade needed
-    const tierUpgradeNeeded = shouldUpgradeTier(updatedMember.total_points);
+    const tierUpgradeNeeded = shouldUpgradeTier(Number(updatedCustomer.lifetime_spend));
 
     if (tierUpgradeNeeded) {
       logger.info({
         message: 'Loyalty tier upgrade triggered',
         loyaltyMemberId,
-        currentPoints: updatedMember.total_points,
+        lifetimeSpend: Number(updatedCustomer.lifetime_spend),
       });
 
-      // Enqueue tier upgrade as separate async job
       try {
         await enqueueJob(
           JobType.PROCESS_LOYALTY_TIER_UPGRADE,
           {
             loyaltyMemberId,
-            currentPoints: updatedMember.total_points,
+            currentPoints: Number(updatedCustomer.points_balance),
           },
           { priority: 5, delay: 2000 }
         );
@@ -141,7 +144,7 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
       status: 'success',
       transactionId,
       pointsEarned,
-      totalPoints: updatedMember.total_points,
+      totalPoints: Number(updatedCustomer.points_balance),
     };
   } catch (error: any) {
     logger.error({
@@ -156,11 +159,11 @@ export async function processLoyaltyAccrual(job: Job<LoyaltyAccrualJobData>) {
 
 /**
  * Check if member should be upgraded to next tier
- * Tiers: Bronze (0), Silver (500), Gold (2000), Platinum (5000)
+ * Tiers: Bronze (0), Silver (500), Gold (1500), Platinum (3000)
  */
-function shouldUpgradeTier(points: number): boolean {
-  const tierThresholds = [0, 500, 2000, 5000];
-  return tierThresholds.some(threshold => points >= threshold);
+function shouldUpgradeTier(lifetimeSpend: number): boolean {
+  const tierThresholds = [0, 500, 1500, 3000];
+  return tierThresholds.some(threshold => lifetimeSpend >= threshold);
 }
 
 /**
@@ -185,24 +188,31 @@ export async function processLoyaltyTierUpgrade(job: Job<LoyaltyTierUpgradeJobDa
       jobId: job.id,
     });
 
-    // Determine new tier
-    let newTier = 'bronze';
-    if (currentPoints >= 5000) newTier = 'platinum';
-    else if (currentPoints >= 2000) newTier = 'gold';
-    else if (currentPoints >= 500) newTier = 'silver';
-
-    // Update member tier
-    const updated = await prisma.loyalty_members.update({
+    const customer = await prisma.loyalty_customers.findUnique({
       where: { id: loyaltyMemberId },
-      data: {
-        tier: newTier,
-      },
+    });
+
+    if (!customer) return { status: 'skipped', reason: 'not_found' };
+
+    const spend = Number(customer.lifetime_spend);
+    let newTier = 'bronze';
+    if (spend >= 3000) newTier = 'platinum';
+    else if (spend >= 1500) newTier = 'gold';
+    else if (spend >= 500) newTier = 'silver';
+
+    if (newTier === customer.tier) {
+      return { status: 'skipped', reason: 'already_at_tier' };
+    }
+
+    await prisma.loyalty_customers.update({
+      where: { id: loyaltyMemberId },
+      data: { tier: newTier },
     });
 
     logger.info({
       message: 'Loyalty tier upgraded',
       loyaltyMemberId,
-      oldTier: updated.tier,
+      oldTier: customer.tier,
       newTier,
       jobId: job.id,
     });
@@ -229,8 +239,11 @@ export async function processLoyaltyTierUpgrade(job: Job<LoyaltyTierUpgradeJobDa
  */
 export async function reverseLoyaltyAccrual(transactionId: string): Promise<void> {
   try {
-    const loyaltyTxn = await prisma.loyalty_transactions.findUnique({
-      where: { transaction_id: transactionId },
+    const loyaltyTxn = await prisma.loyalty_transactions.findFirst({
+      where: {
+        reference_id: transactionId,
+        type: 'earn',
+      },
     });
 
     if (!loyaltyTxn) {
@@ -242,28 +255,29 @@ export async function reverseLoyaltyAccrual(transactionId: string): Promise<void
     }
 
     // Reverse the points
-    await prisma.loyalty_members.update({
-      where: { id: loyaltyTxn.loyalty_member_id },
+    await prisma.loyalty_customers.update({
+      where: { id: loyaltyTxn.loyalty_customer_id },
       data: {
-        total_points: {
-          decrement: loyaltyTxn.points_earned,
-        },
+        points_balance: { decrement: Number(loyaltyTxn.points_amount) },
       },
     });
 
-    // Mark transaction as reversed
-    await prisma.loyalty_transactions.update({
-      where: { id: loyaltyTxn.id },
+    // Delete the earn transaction (or mark it)
+    await prisma.loyalty_transactions.create({
       data: {
-        points_earned: 0,
-        notes: 'Reversed due to transaction failure',
+        loyalty_customer_id: loyaltyTxn.loyalty_customer_id,
+        type: 'adjustment',
+        points_amount: -Number(loyaltyTxn.points_amount),
+        reference_type: 'reversal',
+        reference_id: transactionId,
+        description: `Reversed accrual for failed transaction ${transactionId}`,
       },
     });
 
     logger.info({
       message: 'Loyalty accrual reversed',
       transactionId,
-      pointsReversed: loyaltyTxn.points_earned,
+      pointsReversed: Number(loyaltyTxn.points_amount),
     });
   } catch (error: any) {
     logger.error({
