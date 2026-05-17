@@ -2,6 +2,7 @@ import prisma from '../../db/prisma';
 import { enqueueJob, JobType } from '../../lib/queues/jobQueue';
 import { logger } from '../../lib/monitoring/logger';
 import { addDays } from 'date-fns';
+import { privacyUtils } from '../../utils/privacy';
 
 /**
  * Loyalty Program Service
@@ -84,10 +85,15 @@ export async function enrollCustomer(
     lastName: string;
   }
 ) {
+  const encryptedEmail = privacyUtils.encryptDeterministic(data.email);
+  const encryptedPhone = privacyUtils.encryptDeterministic(data.phone);
+  const encryptedFirstName = privacyUtils.encryptDeterministic(data.firstName);
+  const encryptedLastName = privacyUtils.encryptDeterministic(data.lastName);
+
   // Check if already enrolled
   const existing = await prisma.loyalty_customers.findFirst({
     where: {
-      email: data.email,
+      email: encryptedEmail,
       store_id: storeId,
     },
   });
@@ -99,10 +105,10 @@ export async function enrollCustomer(
   const customer = await prisma.loyalty_customers.create({
     data: {
       store_id: storeId,
-      email: data.email,
-      phone: data.phone,
-      first_name: data.firstName,
-      last_name: data.lastName,
+      email: encryptedEmail as string,
+      phone: encryptedPhone,
+      first_name: encryptedFirstName as string,
+      last_name: encryptedLastName as string,
       tier: 'bronze',
       points_balance: 0,
     },
@@ -128,11 +134,15 @@ export async function enrollCustomer(
     },
   });
 
+  const decryptedEmail = privacyUtils.decrypt(customer.email);
+  const decryptedFirstName = privacyUtils.decrypt(customer.first_name);
+  const decryptedLastName = privacyUtils.decrypt(customer.last_name);
+
   return {
     id: customer.id,
-    email: customer.email,
-    firstName: customer.first_name,
-    lastName: customer.last_name,
+    email: privacyUtils.maskEmail(decryptedEmail),
+    firstName: privacyUtils.maskName(decryptedFirstName),
+    lastName: privacyUtils.maskName(decryptedLastName),
     tier: customer.tier,
     pointsBalance: 100,
     lifetimeSpend: 0,
@@ -156,11 +166,15 @@ export async function getBalance(loyaltyId: string) {
   const nextTier = customer.tier === 'platinum' ? null : 
     Object.entries(TIER_THRESHOLDS).find(([_, t]) => t.minSpend > nextTierThreshold.minSpend)?.[0];
 
+  const decryptedEmail = privacyUtils.decrypt(customer.email);
+  const decryptedFirstName = privacyUtils.decrypt(customer.first_name);
+  const decryptedLastName = privacyUtils.decrypt(customer.last_name);
+
   return {
     loyaltyId: customer.id,
-    email: customer.email,
-    firstName: customer.first_name,
-    lastName: customer.last_name,
+    email: privacyUtils.maskEmail(decryptedEmail),
+    firstName: privacyUtils.maskName(decryptedFirstName),
+    lastName: privacyUtils.maskName(decryptedLastName),
     points: Number(customer.points_balance),
     tier: customer.tier,
     totalSpend: Number(customer.lifetime_spend),
@@ -226,7 +240,7 @@ export async function processPointsForOrder(data: {
 
   // Send notification email
   await enqueueJob(JobType.SEND_EMAIL, {
-    to: customer.email,
+    to: privacyUtils.decrypt(customer.email),
     subject: `You earned ${points} loyalty points!`,
     html: `<p>Thank you for your purchase! You earned ${points} points. Your new balance: ${updated.points_balance}</p>`,
   });
@@ -267,7 +281,7 @@ export async function checkAndUpgradeTier(loyaltyId: string) {
 
     // Send tier upgrade email
     await enqueueJob(JobType.SEND_EMAIL, {
-      to: customer.email,
+      to: privacyUtils.decrypt(customer.email),
       subject: `Congratulations! You've reached ${newTier.toUpperCase()} tier!`,
       html: `<p>Your loyalty has been rewarded. You're now a ${newTier} member with ${POINTS_PER_DOLLAR[newTier as keyof typeof POINTS_PER_DOLLAR]}x points multiplier!</p>`,
     });
@@ -333,7 +347,7 @@ export async function redeemReward(loyaltyId: string, rewardId: string) {
 
   // Send confirmation email
   await enqueueJob(JobType.SEND_EMAIL, {
-    to: customer.email,
+    to: privacyUtils.decrypt(customer.email),
     subject: 'Your reward code is ready!',
     html: `<p>Reward: ${reward.description}</p><p>Code: <strong>${code}</strong></p><p>Expires: ${expiresAt.toDateString()}</p>`,
   });

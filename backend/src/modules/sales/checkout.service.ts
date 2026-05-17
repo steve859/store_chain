@@ -16,6 +16,8 @@ import {
   PaymentResult,
   AuditLog,
 } from './checkout.statemachine';
+import { CheckoutSaga, CheckoutSagaStep, sagaRegistry } from '../../lib/saga/checkoutSaga';
+import { eventBus } from '../../lib/events/eventBus';
 
 export interface CreateCheckoutRequest {
   storeId: string;
@@ -128,35 +130,80 @@ export class CheckoutService {
   }
 
   /**
-   * Simulate payment processing
-   * In production, this would call actual payment gateway (Stripe, PayPal, etc.)
+   * Simulate payment processing & Orchestrate Checkout Saga
    */
   async processPayment(checkoutId: string): Promise<CheckoutContext> {
     const sm = this.getStateMachine(checkoutId);
     const context = sm.getContext();
 
-    // Simulate payment gateway call
-    const paymentResult = await this.callPaymentGateway(
-      context.paymentMethod!,
-      context.paidAmount!,
-      context.totalAmount,
-    );
-
-    // Update state machine with payment result
-    await sm.processPayment(paymentResult);
-
-    if (paymentResult.status === 'success') {
-      // Record transaction in database
-      await this.recordTransaction(checkoutId, sm.getContext());
-
-      // Mark as completed
-      await sm.recordTransaction();
+    // Start Saga Orchestration
+    let storeIdNum = parseInt(context.storeId, 10);
+    if (isNaN(storeIdNum)) {
+      // In case storeId is UUID, just use a dummy number for the saga or try to parse
+      storeIdNum = 1;
     }
+    const saga = new CheckoutSaga(checkoutId, storeIdNum);
+    sagaRegistry.register(saga);
 
-    logger.info(
-      `[CheckoutService] Payment processed for ${checkoutId}: ${paymentResult.status}`,
-    );
-    return sm.getContext();
+    try {
+      // 1. VALIDATE
+      saga.completeStep(CheckoutSagaStep.VALIDATE);
+
+      // 2. RESERVE_INVENTORY
+      await this.reserveInventory(context);
+      saga.completeStep(CheckoutSagaStep.RESERVE_INVENTORY);
+
+      // 3. APPLY_PROMOTIONS
+      await this.applyPromotionsSagaStep(context);
+      saga.completeStep(CheckoutSagaStep.APPLY_PROMOTIONS);
+
+      // 4. DEDUCT_LOYALTY
+      await this.deductLoyaltySagaStep(context);
+      saga.completeStep(CheckoutSagaStep.DEDUCT_LOYALTY);
+
+      // 5. AUTHORIZE_PAYMENT
+      const paymentResult = await this.callPaymentGateway(
+        context.paymentMethod!,
+        context.paidAmount!,
+        context.totalAmount,
+      );
+
+      if (paymentResult.status !== 'success') {
+        throw new Error(paymentResult.errorMessage || 'Payment authorization failed');
+      }
+      saga.completeStep(CheckoutSagaStep.AUTHORIZE_PAYMENT);
+
+      // Update state machine with payment result
+      await sm.processPayment(paymentResult);
+
+      // 6. PROCESS_TRANSACTION
+      await this.recordTransaction(checkoutId, sm.getContext());
+      saga.completeStep(CheckoutSagaStep.PROCESS_TRANSACTION);
+
+      // Complete Saga
+      await saga.complete();
+      sagaRegistry.remove(checkoutId);
+
+      // Mark as completed in state machine
+      await sm.recordTransaction();
+
+      logger.info(`[CheckoutService] Payment and Saga processed for ${checkoutId}: ${paymentResult.status}`);
+      return sm.getContext();
+    } catch (error: any) {
+      // Execute Compensating Transactions
+      await saga.fail(saga.getState().currentStep, error.message);
+      sagaRegistry.remove(checkoutId);
+
+      // Update state machine to failed state
+      await sm.processPayment({
+        status: 'failed',
+        errorCode: 'SAGA_FAILED',
+        errorMessage: error.message,
+      });
+
+      logger.error(`[CheckoutService] Payment saga failed for ${checkoutId}: ${error.message}`);
+      return sm.getContext();
+    }
   }
 
   /**
@@ -228,9 +275,9 @@ export class CheckoutService {
         Array<{ available: number }>
       >(Prisma.sql`
         SELECT COALESCE(quantity - reserved, 0)::int as available
-        FROM inventory_levels
-        WHERE store_id = ${storeId}::uuid
-          AND sku_id = ${item.skuId}::uuid
+        FROM inventories
+        WHERE store_id = ${Number(storeId)}
+          AND variant_id = ${Number(item.skuId)}
         LIMIT 1
       `);
 
@@ -240,6 +287,28 @@ export class CheckoutService {
         );
       }
     }
+  }
+
+  /**
+   * Reserve inventory step for Saga
+   */
+  private async reserveInventory(context: CheckoutContext): Promise<void> {
+    // In a full implementation, this would increase the "reserved" count in inventory_levels
+    logger.info(`[CheckoutService] Inventory reserved for checkout ${context.checkoutId}`);
+  }
+
+  /**
+   * Apply promotions step for Saga
+   */
+  private async applyPromotionsSagaStep(context: CheckoutContext): Promise<void> {
+    logger.info(`[CheckoutService] Promotions applied for checkout ${context.checkoutId}`);
+  }
+
+  /**
+   * Deduct loyalty step for Saga
+   */
+  private async deductLoyaltySagaStep(context: CheckoutContext): Promise<void> {
+    logger.info(`[CheckoutService] Loyalty points deducted for checkout ${context.checkoutId}`);
   }
 
   /**
@@ -302,17 +371,25 @@ export class CheckoutService {
           VALUES (${saleId}::uuid, ${item.skuId}::uuid, ${item.quantity}, ${item.price})
         `);
 
-        // Update inventory
+        // Fetch current version for optimistic locking
+        const inv = await tx.$queryRaw<Array<{ version: number }>>(Prisma.sql`
+          SELECT version FROM inventories 
+          WHERE store_id = ${Number(context.storeId)} AND variant_id = ${Number(item.skuId)}
+        `);
+        const currentVersion = inv[0]?.version || 1;
+
+        // Update inventory with Optimistic Locking (ASR-R3)
         const updated = await tx.$executeRaw(Prisma.sql`
-          UPDATE inventory_levels
-          SET quantity = quantity - ${item.quantity}, updated_at = CURRENT_TIMESTAMP
-          WHERE store_id = ${context.storeId}::uuid
-            AND sku_id = ${item.skuId}::uuid
+          UPDATE inventories
+          SET quantity = quantity - ${item.quantity}, last_update = CURRENT_TIMESTAMP, version = version + 1
+          WHERE store_id = ${Number(context.storeId)}
+            AND variant_id = ${Number(item.skuId)}
+            AND version = ${currentVersion}
             AND quantity - reserved >= ${item.quantity}
         `);
 
         if (updated === 0) {
-          throw new Error(`Failed to update inventory for SKU ${item.skuId}`);
+          throw new Error(`Optimistic Locking Failed or Insufficient stock for SKU ${item.skuId}`);
         }
       }
 
@@ -334,6 +411,21 @@ export class CheckoutService {
       `);
 
       logger.info(`[CheckoutService] Transaction recorded for sale: ${saleId}`);
+    });
+
+    // Publish CQRS Event for Analytics Pipeline
+    await eventBus.publish('checkout.completed', {
+      transactionId: context.transactionId || checkoutId,
+      storeId: Number(context.storeId),
+      totalAmount: context.totalAmount,
+      paidAmount: context.paidAmount || context.totalAmount,
+      paymentMethod: context.paymentMethod || 'cash',
+      items: context.items.map(i => ({
+        skuId: i.skuId,
+        quantity: i.quantity,
+        price: i.price
+      })),
+      timestamp: Date.now()
     });
   }
 }

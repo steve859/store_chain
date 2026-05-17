@@ -104,4 +104,34 @@ export const startScheduler = () => {
       });
     }
   });
+
+  // 5. ASR-D1: Auto-create monthly partitions (runs 1st of each month at 00:05)
+  cron.schedule('5 0 1 * *', async () => {
+    logger.info({ message: 'Running scheduled partition maintenance (ASR-D1)' });
+    const partitionedTables = [
+      'invoices',
+      'stock_movements',
+      'audit_logs',
+      'loyalty_transactions',
+    ];
+
+    for (const table of partitionedTables) {
+      try {
+        // Create partition for next month
+        await prisma.$executeRawUnsafe(
+          `SELECT create_monthly_partition('${table}', (CURRENT_DATE + INTERVAL '1 month')::DATE)`
+        );
+        // Also ensure the month after next exists (safety buffer)
+        await prisma.$executeRawUnsafe(
+          `SELECT create_monthly_partition('${table}', (CURRENT_DATE + INTERVAL '2 months')::DATE)`
+        );
+        logger.info({ message: `Partition created for ${table}` });
+      } catch (error) {
+        logger.error({
+          message: `Failed to create partition for ${table}`,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  });
 };

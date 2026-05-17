@@ -1,4 +1,5 @@
 import { getReadPrisma } from '../../db/prisma';
+import { getRedis } from '../../lib/cache/redis';
 
 interface ReportParams {
   storeId?: number; // Nếu Admin xem thì có thể null (xem tất cả), Manager thì bắt buộc
@@ -167,6 +168,21 @@ export const ReportsService = {
       };
     });
 
+    // CQRS Read Model: Lấy metrics thời gian thực từ Redis (ASR-P2)
+    const redis = getRedis();
+    const todayStr = new Date().toISOString().split('T')[0];
+    let realtimeOrders = 0;
+    let realtimeRevenue = 0;
+    let realtimeProductsSold = 0;
+
+    if (redis) {
+      const key = storeId ? `analytics:store:${storeId}:daily:${todayStr}` : `analytics:global:daily:${todayStr}`;
+      const [ordersStr, revenueStr, productsStr] = await redis.hmget(key, 'orders', 'revenue', 'products_sold');
+      realtimeOrders = parseInt(ordersStr || '0', 10);
+      realtimeRevenue = parseFloat(revenueStr || '0');
+      realtimeProductsSold = parseInt(productsStr || '0', 10);
+    }
+
     return {
       // Backward compatible fields (nếu FE/BE khác đang dùng)
       totalRevenue: Number(revenueAgg._sum.total ?? 0),
@@ -175,12 +191,16 @@ export const ReportsService = {
 
       // Fields phù hợp dashboard FE hiện tại
       profitThisMonth,
-      productsSoldToday,
+      productsSoldToday: realtimeProductsSold || productsSoldToday,
       productsSoldThisMonth,
       ordersThisMonth: revenueAgg._count.id ?? 0,
       topProduct,
       topStore,
       recentOrders,
+
+      // Real-time CQRS metrics
+      realtimeOrdersToday: realtimeOrders,
+      realtimeRevenueToday: realtimeRevenue,
     };
   },
 

@@ -1,3 +1,5 @@
+// ASR-M3: Must be imported FIRST for auto-instrumentation to work
+import './lib/monitoring/tracing';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -10,6 +12,7 @@ import { closeQueues } from './lib/queues/jobQueue';
 import { logger } from './lib/monitoring/logger';
 import { pricingEngine } from './lib/cache/pricingEngine';
 import { warmupPromotionCache } from './lib/cache/promotionRules';
+import { analyticsAggregator } from './modules/reports/analyticsAggregator';
 
 // Import all job processors to register them
 import './lib/queues/processors';
@@ -57,6 +60,9 @@ const startServer = async () => {
       });
     });
 
+  // Start Real-time Data Aggregation Pipeline (CQRS for Analytics)
+  analyticsAggregator.start();
+
   httpServer.listen(PORT, '0.0.0.0', () => {
     logger.info({
       message: '🚀 API Server Started',
@@ -70,32 +76,40 @@ const startServer = async () => {
         '✅ Security Headers',
         '✅ Rate Limiting',
         '✅ Socket.IO Real-time',
+        '✅ OpenTelemetry Distributed Tracing (ASR-M3)',
+        '✅ ELK Centralized Logging (ASR-M3)',
+        '✅ CQRS Analytics Pipeline (ASR-P2)',
+        '✅ Saga Orchestrator (ASR-P3)',
       ],
     });
 
     console.log(`
-╔════════════════════════════════════════╗
-║   Store Chain API - ASR-P1 Ready       ║
-╠════════════════════════════════════════╣
-║ 🚀 Server:   http://0.0.0.0:${PORT}                    ║
-║ 📊 Metrics:  /metrics                  ║
-║ 📋 Swagger:  /api-docs                 ║
-║ 💚 Health:   /health                   ║
-║                                        ║
-║ ASR-P1 (<100ms Pricing Lookup):        ║
-║ ✅ L1 In-Memory Cache (<1ms)           ║
-║ ✅ L2 Redis Response Cache (~5ms)      ║
-║ ✅ L3 DB Fallback (<50ms)              ║
-║                                        ║
-║ Additional Features:                   ║
-║ ✅ Job Queue (Bull.js + Redis)        ║
-║ ✅ Structured Logging (Pino)          ║
-║ ✅ Prometheus Metrics                 ║
-║ ✅ Sentry Error Tracking              ║
-║ ✅ Security Headers (Helmet)          ║
-║ ✅ Rate Limiting                      ║
-║ ✅ Request Monitoring                 ║
-╚════════════════════════════════════════╝
+╔════════════════════════════════════════════╗
+║   Store Chain API - ASR Ready              ║
+╠════════════════════════════════════════════╣
+║ 🚀 Server:   http://0.0.0.0:${PORT}       ║
+║ 📊 Metrics:  /metrics                      ║
+║ 📋 Swagger:  /api-docs                     ║
+║ 💚 Health:   /health                       ║
+║                                            ║
+║ ASR-P1 (<100ms Pricing Lookup):            ║
+║ ✅ L1 In-Memory Cache (<1ms)               ║
+║ ✅ L2 Redis Response Cache (~5ms)          ║
+║ ✅ L3 DB Fallback (<50ms)                  ║
+║                                            ║
+║ ASR-M3 (Observability):                    ║
+║ ✅ OpenTelemetry + Jaeger Tracing          ║
+║ ✅ ELK Centralized Logging                 ║
+║ ✅ Prometheus Metrics                      ║
+║                                            ║
+║ Additional Features:                       ║
+║ ✅ Saga Pattern Checkout (ASR-P3)          ║
+║ ✅ CQRS Analytics (ASR-P2)                 ║
+║ ✅ Redis Pub/Sub Event Bus (ASR-S1)        ║
+║ ✅ PII Encryption (ASR-SEC5)               ║
+║ ✅ Optimistic Locking (ASR-R3)             ║
+║ ✅ Terraform IaC (ASR-R1/R2)               ║
+╚════════════════════════════════════════════╝
     `);
   });
 

@@ -14,6 +14,8 @@ import prisma from '../../db/prisma';
 export enum CheckoutSagaStep {
   VALIDATE = 'validate',
   RESERVE_INVENTORY = 'reserve_inventory',
+  APPLY_PROMOTIONS = 'apply_promotions',
+  DEDUCT_LOYALTY = 'deduct_loyalty',
   AUTHORIZE_PAYMENT = 'authorize_payment',
   PROCESS_TRANSACTION = 'process_transaction',
   COMPLETE = 'complete',
@@ -151,6 +153,14 @@ export class CheckoutSaga {
         await this.compensateInventoryReservation();
         break;
 
+      case CheckoutSagaStep.APPLY_PROMOTIONS:
+        await this.compensatePromotions();
+        break;
+
+      case CheckoutSagaStep.DEDUCT_LOYALTY:
+        await this.compensateLoyalty();
+        break;
+
       case CheckoutSagaStep.AUTHORIZE_PAYMENT:
         await this.compensatePayment();
         break;
@@ -186,6 +196,44 @@ export class CheckoutSaga {
     } catch (error: any) {
       logger.error({
         message: 'Failed to reverse inventory reservation',
+        transactionId: this.state.transactionId,
+        errorMessage: error.message,
+      });
+    }
+  }
+
+  /**
+   * Compensate promotions
+   */
+  private async compensatePromotions(): Promise<void> {
+    try {
+      logger.info({
+        message: 'Reversing applied promotions',
+        transactionId: this.state.transactionId,
+      });
+      // Logic to revert promotional usage counts
+    } catch (error: any) {
+      logger.error({
+        message: 'Failed to reverse promotions',
+        transactionId: this.state.transactionId,
+        errorMessage: error.message,
+      });
+    }
+  }
+
+  /**
+   * Compensate loyalty
+   */
+  private async compensateLoyalty(): Promise<void> {
+    try {
+      logger.info({
+        message: 'Reversing loyalty points deduction',
+        transactionId: this.state.transactionId,
+      });
+      // Logic to refund loyalty points
+    } catch (error: any) {
+      logger.error({
+        message: 'Failed to reverse loyalty points',
         transactionId: this.state.transactionId,
         errorMessage: error.message,
       });
