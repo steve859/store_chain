@@ -65,6 +65,7 @@ Derived from:
 
 System phải hỗ trợ centralized management cho hơn 100 stores đồng thời. 
 
+
 ### Architectural Impact
 
 * Horizontal scalability

@@ -1,4 +1,4 @@
-import prisma from '../../db/prisma'; // Import instance Prisma dùng chung
+import { getReadPrisma } from '../../db/prisma';
 
 interface ReportParams {
   storeId?: number; // Nếu Admin xem thì có thể null (xem tất cả), Manager thì bắt buộc
@@ -9,6 +9,7 @@ interface ReportParams {
 export const ReportsService = {
   // 1. Lấy tổng quan (Dashboard Summary Cards)
   getDashboardStats: async ({ storeId, startDate, endDate }: ReportParams) => {
+    const prisma = getReadPrisma();
     const now = new Date();
     const effectiveEndDate = endDate ?? now;
 
@@ -185,6 +186,7 @@ export const ReportsService = {
 
   // 2. Biểu đồ doanh thu theo thời gian (Line Chart)
   getRevenueChart: async ({ storeId, startDate, endDate }: ReportParams) => {
+    const prisma = getReadPrisma();
     const now = new Date();
     const effectiveEndDate = endDate ?? now;
     const effectiveStartDate =
@@ -213,6 +215,7 @@ export const ReportsService = {
 
   // 3. Top sản phẩm bán chạy (Pie/Bar Chart)
   getTopSellingProducts: async ({ storeId, startDate, endDate }: ReportParams) => {
+    const prisma = getReadPrisma();
     const now = new Date();
     const effectiveEndDate = endDate ?? now;
     const effectiveStartDate =

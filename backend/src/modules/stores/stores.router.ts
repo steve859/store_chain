@@ -1,8 +1,24 @@
 import { Router } from 'express';
-import prisma from '../../db/prisma';
+import prisma, { getReadPrisma } from '../../db/prisma';
 import { Prisma } from '@prisma/client'
 
 const router = Router();
+
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+const parsePositiveInt = (value: unknown): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+};
+
+const parseNonNegativeInt = (value: unknown): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 0) return null;
+  return num;
+};
 
 const buildNextStoreCode = async (): Promise<string> => {
   const result = await prisma.stores.aggregate({
@@ -18,11 +34,17 @@ const buildNextStoreCode = async (): Promise<string> => {
  */
 router.get('/', async (req, res, next) => {
   try {
+    const readPrisma = getReadPrisma();
     const q = String(req.query.q ?? '').trim();
-    const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
-    const skip = req.query.skip ? Number(req.query.skip) : 0;
+    const take = clamp(parsePositiveInt(req.query.take) ?? 50, 1, 200);
+    const skip = parseNonNegativeInt(req.query.skip) ?? 0;
+    const cursor = parsePositiveInt(req.query.cursor);
     const includeStats = String(req.query.includeStats ?? '').toLowerCase();
     const wantsStats = includeStats === '1' || includeStats === 'true' || includeStats === 'yes';
+
+    if (req.query.cursor !== undefined && cursor === null) {
+      return res.status(400).json({ error: 'cursor must be a positive integer' });
+    }
 
     const where: Prisma.storesWhereInput = q
       ? {
@@ -35,34 +57,49 @@ router.get('/', async (req, res, next) => {
         }
       : {};
 
-    const [items, total] = await Promise.all([
-      prisma.stores.findMany({
-        where,
+    const whereWithCursor: Prisma.storesWhereInput = cursor
+      ? { ...where, id: { lt: cursor } }
+      : where;
+
+    const [pageRows, total] = await Promise.all([
+      readPrisma.stores.findMany({
+        where: whereWithCursor,
         orderBy: { id: 'desc' },
-        take,
-        skip,
+        take: take + 1,
+        skip: cursor ? 0 : skip,
       }),
-      prisma.stores.count({ where }),
+      readPrisma.stores.count({ where }),
     ]);
 
+    const hasMore = pageRows.length > take;
+    const items = hasMore ? pageRows.slice(0, take) : pageRows;
+    const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
+
     if (!wantsStats || items.length === 0) {
-      return res.json({ items, total, take, skip });
+      return res.json({
+        items,
+        total,
+        take,
+        skip: cursor ? 0 : skip,
+        cursor: cursor ?? null,
+        nextCursor,
+      });
     }
 
     const storeIds = items.map(s => s.id);
 
     const [usersCounts, inventoriesCounts, invoicesCounts] = await Promise.all([
-      prisma.users.groupBy({
+      readPrisma.users.groupBy({
         by: ['store_id'],
         where: { store_id: { in: storeIds }, is_active: true },
         _count: { _all: true },
       }),
-      prisma.inventories.groupBy({
+      readPrisma.inventories.groupBy({
         by: ['store_id'],
         where: { store_id: { in: storeIds } },
         _count: { _all: true },
       }),
-      prisma.invoices.groupBy({
+      readPrisma.invoices.groupBy({
         by: ['store_id'],
         where: { store_id: { in: storeIds } },
         _count: { _all: true },
@@ -93,7 +130,14 @@ router.get('/', async (req, res, next) => {
       },
     }));
 
-    return res.json({ items: enriched, total, take, skip });
+    return res.json({
+      items: enriched,
+      total,
+      take,
+      skip: cursor ? 0 : skip,
+      cursor: cursor ?? null,
+      nextCursor,
+    });
   } catch (err) {
     next(err);
   }
@@ -105,12 +149,13 @@ router.get('/', async (req, res, next) => {
  */
 router.get('/:id', async (req, res, next) => {
   try {
+    const readPrisma = getReadPrisma();
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
       return res.status(400).json({ error: 'Invalid store id' });
     }
 
-    const store = await prisma.stores.findUnique({ where: { id: storeId } });
+    const store = await readPrisma.stores.findUnique({ where: { id: storeId } });
     if (!store) {
       return res.status(404).json({ error: 'Store not found' });
     }
@@ -127,14 +172,15 @@ router.get('/:id', async (req, res, next) => {
  */
 router.get('/:id/overview', async (req, res, next) => {
   try {
+    const readPrisma = getReadPrisma();
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
       return res.status(400).json({ error: 'Invalid store id' });
     }
 
     const [store, employees, inventories, invoices] = await Promise.all([
-      prisma.stores.findUnique({ where: { id: storeId } }),
-      prisma.users.findMany({
+      readPrisma.stores.findUnique({ where: { id: storeId } }),
+      readPrisma.users.findMany({
         where: { store_id: storeId, is_active: true },
         orderBy: { id: 'desc' },
         select: {
@@ -147,7 +193,7 @@ router.get('/:id/overview', async (req, res, next) => {
           roles: { select: { name: true } },
         },
       }),
-      prisma.inventories.findMany({
+      readPrisma.inventories.findMany({
         where: { store_id: storeId },
         orderBy: [{ quantity: 'desc' }, { id: 'desc' }],
         take: 50,
@@ -167,7 +213,7 @@ router.get('/:id/overview', async (req, res, next) => {
           },
         },
       }),
-      prisma.invoices.findMany({
+      readPrisma.invoices.findMany({
         where: { store_id: storeId },
         orderBy: { created_at: 'desc' },
         take: 20,
