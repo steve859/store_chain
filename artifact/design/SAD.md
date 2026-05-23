@@ -1,564 +1,471 @@
-# Store Chain Management System - Software Architecture Document (SAD)
+# SAD
 
-Organization: Store Chain
-Project: Store Chain Management System
-Content Owner: TBD
-Document Number: SAD-SCMS-001
-Release/Revision: 1.0
-Release/Revision Date: 2026-05-14
+_Source file: `SAD_Store_Chain_Revised_Theo_ADD_Template.docx`_
 
-## Table of Contents
+Store Chain Management System
 
-1. Documentation Roadmap
-2. Architecture Background
-3. Views
-4. Relations Among Views
-5. Referenced Materials
-6. Directory
-7. Sample Figures and Tables
-8. Appendices
+Software Architecture Document (SAD)
 
-# 1. Documentation Roadmap
+Revised according to ADD and SAD Flight Booking Template
 
-This section explains how the SAD is structured and how to use it.
+| Document Information | Value |
+| --- | --- |
+| Content Owner | Team |
+| Document Number | SAD-SCMS-002 |
+| Release / Revision | 2.0 |
+| Release / Revision Date | 2026-05-24 |
+| Project | Store Chain Management System |
+| Source Alignment | ADD_Store_Chain_Revised_By_ASR.docx and corrected ASR workbook |
 
-## 1.1 Document Management and Configuration Control Information
+# Revision and Sign Off Sheet
 
-Revision history:
+## Change Record
 
-| Revision | Date       | Purpose         | Scope        |
-| -------- | ---------- | --------------- | ------------ |
-| 1.0      | 2026-05-14 | Initial release | All sections |
+| Author | Version | Change reference | Date |
+| --- | --- | --- | --- |
+| Team | 1.0 | Initial Store Chain SAD | 2026-05-14 |
+| Team | 2.0 | Revised to follow Flight Booking SAD template and align with revised ADD/ASR | 2026-05-24 |
 
-## 1.2 Purpose and Scope of the SAD
+## Reviewers
 
-This SAD documents the software architecture for the Store Chain Management System. It covers the major architectural structures, their elements, and the relationships between them. The document focuses on architectural concerns: system decomposition, runtime interactions, deployment topology, and data structures.
+| Name | Company | Version | Position | Date |
+| --- | --- | --- | --- | --- |
 
-Out of scope: detailed API specifications, UI wireframes, and implementation-level details that do not affect system interactions.
+# Table of Contents
 
-## 1.3 How the SAD Is Organized
+1. Tổng quan về giải pháp
 
-- Section 1 explains how to navigate the SAD and the stakeholders it serves.
-- Section 2 provides background, goals, and driving requirements.
-- Section 3 presents architectural views (module, runtime, deployment, data).
-- Section 4 documents relations among the views.
-- Sections 5 and 6 provide references and a glossary.
+1.1. Mục tiêu của giải pháp
 
-## 1.4 Stakeholder Representation
+1.2. Phạm vi của hệ thống
 
-Stakeholders and concerns:
+1.3. Các bên liên quan chính
 
-| Stakeholder    | Primary Concerns                                       |
-| -------------- | ------------------------------------------------------ |
-| Business Owner | Time to market, operational coverage, risk containment |
-| Store Manager  | Availability, POS performance, data accuracy           |
-| Cashier        | Fast checkout, minimal downtime                        |
-| Admin          | Security, role control, auditability                   |
-| Developer      | Modularity, maintainability, testability               |
-| DevOps         | Deployability, monitoring, recovery                    |
-| Auditor        | Traceability, audit logs, access control               |
+1.4. Bối cảnh kinh doanh và kỹ thuật
 
-## 1.5 Viewpoint Definitions
+2. Kiến trúc tổng thể
 
-The SAD uses four viewpoints to cover stakeholder concerns. Each viewpoint has a corresponding view in Section 3.
+2.1. Mô hình kiến trúc
 
-### 1.5.1 Module Decomposition Viewpoint
+2.2. Các thành phần chính và quan hệ
 
-#### Abstract
+3. Các quyết định kiến trúc
 
-Shows the static decomposition of the system into implementation modules.
+3.1. Các quyết định quan trọng và lý do
 
-#### Stakeholders and Their Concerns Addressed
+3.2. Các ràng buộc kỹ thuật
 
-Developers, testers, and managers need to understand ownership, responsibilities, and boundaries.
+3.3. Các nguyên tắc thiết kế
 
-#### Elements, Relations, Properties, and Constraints
+4. Kiến trúc logic
 
-- Elements: modules, packages, and routers.
-- Relations: depends-on, imports, uses.
-- Properties: responsibility, public interfaces, ownership.
-- Constraints: module boundaries align with domain modules.
+4.1. Các module chính
 
-#### Language(s) to Model/Represent Conforming Views
+4.2. Luồng dữ liệu và xử lý
 
-Text and tables with simple diagrams.
+5. Kiến trúc vật lý
 
-#### Applicable Evaluation/Analysis Techniques and Consistency/Completeness Criteria
+5.1. Tổng quan triển khai
 
-- Each requirement maps to at least one module.
-- Each public API route maps to exactly one module.
+5.2. Thành phần sử dụng
 
-#### Viewpoint Source
+6. Bảo mật
 
-Adapted from the View and Beyond module viewpoint.
+6.1. Xác thực
 
-### 1.5.2 Component-and-Connector Viewpoint
+6.2. Phân quyền
 
-#### Abstract
+6.3. Bảo vệ API và dịch vụ
 
-Shows runtime components and interactions.
+6.4. Mã hóa dữ liệu
 
-#### Stakeholders and Their Concerns Addressed
+6.5. Bảo vệ tài nguyên hạ tầng
 
-Operations and performance stakeholders need to know how requests flow and what components are critical.
+6.6. Audit logging
 
-#### Elements, Relations, Properties, and Constraints
+7. Hiệu năng và khả năng mở rộng
 
-- Elements: frontend client, API server, database, cache, realtime server.
-- Relations: request/response, event emission, data access.
-- Properties: latency, availability, scalability.
-- Constraints: store scoping on all non-admin requests.
+7.1. Đảm bảo hiệu năng
 
-#### Language(s) to Model/Represent Conforming Views
+7.2. Phương án mở rộng
 
-Text and ASCII sequence/context diagrams.
+7.3. Độ sẵn sàng và độ tin cậy
 
-#### Applicable Evaluation/Analysis Techniques and Consistency/Completeness Criteria
+8. Rủi ro và phương án giảm thiểu
 
-- Every external request has a defined path and error handling.
-- Caching and invalidation are documented for catalog endpoints.
+9. Traceability với ADD/ASR
 
-#### Viewpoint Source
+# 1. Tổng quan về giải pháp.
 
-Adapted from the View and Beyond component-and-connector viewpoint.
+## 1.1. Mục tiêu của giải pháp.
 
-### 1.5.3 Deployment (Allocation) Viewpoint
+Mục tiêu cốt lõi của Store Chain Management System là xây dựng một nền tảng quản lý chuỗi cửa hàng bán lẻ tập trung, hỗ trợ vận hành nhiều cửa hàng, xử lý POS, quản lý tồn kho, khuyến mãi, loyalty, báo cáo và kiểm soát truy cập theo vai trò.
 
-#### Abstract
+- Tối ưu quy trình vận hành cửa hàng: bán hàng tại POS, quản lý ca, quản lý giao dịch và xuất hóa đơn/biên nhận.
 
-Shows the mapping of software elements to runtime environments.
+- Đảm bảo dữ liệu tồn kho, chuyển kho, pricing, promotion và loyalty được cập nhật nhất quán giữa các module.
 
-#### Stakeholders and Their Concerns Addressed
+- Cung cấp dashboard, báo cáo và analytics gần thời gian thực cho Store Manager, District Manager và Admin.
 
-DevOps and maintainers need deployment topology and runtime dependencies.
+- Đảm bảo các yêu cầu chất lượng từ ADD: bảo mật, hiệu năng, khả dụng, tính dễ sửa đổi, tính toàn vẹn dữ liệu và auditability.
 
-#### Elements, Relations, Properties, and Constraints
+- Hỗ trợ mở rộng cho nhiều cửa hàng, nhiều terminal POS và tối thiểu 5,000 người dùng đồng thời theo ASR/ADD.
 
-- Elements: API service, database, cache, client.
-- Relations: network links, environment variables.
-- Properties: ports, scaling, health checks.
-- Constraints: API base path /api/v1, health endpoint /health.
+## 1.2. Phạm vi của hệ thống.
 
-#### Language(s) to Model/Represent Conforming Views
+In-Scope (Những gì có trong phạm vi dự án):
 
-Text with deployment diagrams.
+- Đăng nhập, quản lý người dùng, cấu hình vai trò và phân quyền RBAC.
 
-#### Applicable Evaluation/Analysis Techniques and Consistency/Completeness Criteria
+- Quản lý cửa hàng, dashboard theo store/region/chain và phạm vi truy cập.
 
-- All runtime dependencies are explicit (PostgreSQL, Redis).
-- Health and metrics endpoints are specified.
+- POS transaction: quét sản phẩm, áp dụng loyalty, promotion, thanh toán, giảm tồn kho và tạo receipt.
 
-#### Viewpoint Source
+- Loyalty program: tính điểm, đổi điểm, nâng hạng, lưu lịch sử điểm.
 
-Adapted from the View and Beyond allocation viewpoint.
+- Promotion và dynamic pricing: tạo rule, áp dụng promotion, thực thi pricing, xem lịch sử giá, A/B testing và rollback giá.
 
-### 1.5.4 Data Viewpoint
+- Quản lý product catalog, inventory stock, chuyển kho liên cửa hàng và phê duyệt transfer.
 
-#### Abstract
+- Báo cáo store/chain, real-time analytics, export PDF/XLSX/CSV.
 
-Shows major data entities and their relationships.
+- Low-stock alert, complaint management, audit log và system settings.
 
-#### Stakeholders and Their Concerns Addressed
+Out-of-Scope (Những gì không trong phạm vi hiện tại):
 
-Business, developers, and auditors need to understand data coverage and constraints.
+- Tích hợp payment gateway online hoàn chỉnh; tài liệu chỉ thiết kế sẵn webhook/idempotency cho pha tương lai.
 
-#### Elements, Relations, Properties, and Constraints
+- Warehouse Management System chuyên sâu, demand forecasting bằng AI, hoặc ERP/accounting integration đầy đủ.
 
-- Elements: entities in the database schema.
-- Relations: foreign keys, one-to-many, many-to-many.
-- Properties: integrity constraints, auditability.
-- Constraints: store scoped data access.
+- Mobile native app; hệ thống hiện ưu tiên web frontend ReactJS.
 
-#### Language(s) to Model/Represent Conforming Views
+## 1.3. Các bên liên quan chính.
 
-Text and ERD-style descriptions.
+| Stakeholder | Mối quan tâm chính |
+| --- | --- |
+| Business Owner | Bao phủ nghiệp vụ chuỗi cửa hàng, giảm rủi ro vận hành, theo dõi doanh thu và hiệu quả khuyến mãi. |
+| Admin | Quản lý người dùng, vai trò, phân quyền, cấu hình hệ thống, audit và bảo mật. |
+| District Manager | Xem dashboard chuỗi/khu vực, báo cáo tổng hợp, quản lý store và promotion/pricing theo phạm vi. |
+| Store Manager | Theo dõi bán hàng, tồn kho, transfer, ca bán hàng, complaint và báo cáo cửa hàng. |
+| Cashier | Checkout nhanh, giao diện POS đơn giản, xử lý lỗi rõ ràng, downtime thấp. |
+| Inventory Staff | Cập nhật tồn kho, tạo transfer, nhận cảnh báo low-stock, kiểm soát stock movement. |
+| Loyalty Member | Theo dõi điểm, redeem points, transaction history và complaint. |
+| Developer/DevOps | Modularity, deployability, monitoring, rollback, recovery, performance tuning. |
+| Auditor | Traceability, audit log, dữ liệu nhạy cảm, kiểm soát truy cập và lịch sử thay đổi. |
 
-#### Applicable Evaluation/Analysis Techniques and Consistency/Completeness Criteria
+## 1.4. Bối cảnh kinh doanh và kỹ thuật.
 
-- Entities cover functional requirements from SRS.
-- Audit logging is captured for critical actions.
+Bối cảnh kinh doanh: Hệ thống phục vụ mô hình bán lẻ nhiều cửa hàng, nơi dữ liệu sản phẩm, tồn kho, giá, khuyến mãi, loyalty và báo cáo cần được quản lý thống nhất nhưng vẫn có phạm vi theo từng cửa hàng hoặc khu vực. Kiến trúc cần bảo vệ dữ liệu, đảm bảo POS nhanh và duy trì hoạt động liên tục trong giờ bán hàng.
 
-#### Viewpoint Source
+Bối cảnh kỹ thuật: Theo ADD đã chỉnh, hệ thống sử dụng ReactJS cho frontend, Node.js/ExpressJS cho backend, PostgreSQL cho dữ liệu chính, Redis cho cache/job queue/PubSub, REST API, WebSocket khi cần realtime và Docker cho triển khai.
 
-Internal viewpoint aligned to the Prisma schema.
+| Thành phần công nghệ | Vai trò trong hệ thống | Lý do lựa chọn |
+| --- | --- | --- |
+| ReactJS | Xây dựng giao diện web role-based | Phù hợp SPA, component reuse, dễ tạo POS/dashboard tương tác. |
+| Node.js + ExpressJS | Backend REST API, middleware, domain module services | Nhẹ, phù hợp I/O, dễ tổ chức modular monolith và REST API. |
+| PostgreSQL | Primary relational database | Đảm bảo ACID cho POS, inventory, loyalty, pricing và reports. |
+| Redis | Cache, job queue, Pub/Sub, session/ephemeral data | Tăng hiệu năng catalog/pricing, xử lý notification/background job và realtime events. |
+| WebSocket | Dashboard update, POS price feed, notification chọn lọc | Hỗ trợ cập nhật gần thời gian thực cho store-scoped rooms. |
+| Docker | Đóng gói và triển khai | Tách biệt môi trường, hỗ trợ local dev và production packaging. |
+| Prometheus/Grafana hoặc tương đương | Monitoring/alerting | Theo dõi latency, error rate, health check và sự cố availability. |
 
-## 1.6 How a View is Documented
+# 2. Kiến trúc tổng thể.
 
-Each view is documented with a description, a view packet overview, architecture background, variability mechanisms, and a single view packet that includes primary presentation, element catalog, context diagram, and related view packets.
+## 2.1. Mô hình kiến trúc.
 
-## 1.7 Relationship to Other SADs
+Kiến trúc chính được đề xuất là modular monolith backend có ranh giới domain rõ ràng, kết hợp REST API, PostgreSQL transaction, Redis cache/job queue/PubSub và WebSocket cho realtime. Cách tiếp cận này phù hợp với ADD vì giữ được tính dễ sửa đổi theo module, giảm phức tạp vận hành so với microservice đầy đủ, đồng thời vẫn cho phép scale stateless API nodes.
 
-Not applicable for this release.
+- Frontend ReactJS giao tiếp với backend qua REST API dưới /api/v1 và WebSocket khi cần realtime.
 
-## 1.8 Process for Updating this SAD
+- Backend ExpressJS được chia thành các domain modules: Auth, Users, Stores, POS, Inventory, Pricing, Promotions, Loyalty, Reports, Complaints, Audit Logs, Settings.
 
-Submit changes via a pull request with a short summary and updated revision history. Requests are reviewed by the content owner and lead engineer before merging.
+- PostgreSQL đảm bảo transaction cho các nghiệp vụ nhiều bước như checkout, transfer approval, loyalty redemption và price rollback.
 
-# 2. Architecture Background
+- Redis phục vụ catalog cache, active promotion/pricing rule cache, job queue cho low-stock notification/report generation và Pub/Sub cho dashboard/POS updates.
 
-## 2.1 Problem Background
+- Load balancer và stateless API nodes hỗ trợ mở rộng ngang; database replication, Redis cluster và backup/DR hỗ trợ availability.
 
-### 2.1.1 System Overview
+## 2.2. Các thành phần chính và quan hệ.
 
-The system provides a web-based platform for multi-store retail operations: catalog, pricing, inventory, procurement, transfers, POS sales, returns, promotions, complaints, reports, audit logs, and settings.
+| Thành phần | Chức năng chính | Giao tiếp / Quan hệ |
+| --- | --- | --- |
+| Frontend ReactJS | Role-based UI, POS screen, dashboards, reports, forms | REST /api/v1, WebSocket store-scoped events. |
+| Auth & RBAC Module | Login, JWT, role/permission, session expiry, failed login monitoring | Dùng bởi mọi protected route và frontend role layout. |
+| Store & Dashboard Module | Store CRUD, store scope, dashboard KPI | Đọc transaction, inventory, reports; phân quyền theo store/region. |
+| POS & Transaction Module | Checkout, payment recording, receipt, close shift, transaction history | Gọi Inventory, Promotion, Pricing, Loyalty; commit bằng PostgreSQL transaction. |
+| Inventory & Transfer Module | Stock update, stock movement, low-stock threshold, inter-store transfer approval | Gọi Notification job, Audit Log, Reports. |
+| Pricing & Promotion Module | Dynamic pricing, promotion eligibility, A/B testing, price history, rollback | Cache active rules ở Redis, publish price updates qua WebSocket/PubSub. |
+| Loyalty Module | Calculate/redeem points, tier upgrade, loyalty ledger | Tham gia POS transaction và background jobs. |
+| Reports & Analytics Module | Store/chain reports, realtime analytics, export PDF/XLSX/CSV | Đọc dữ liệu đã scope, hỗ trợ async job cho report nặng. |
+| Complaints Module | Submit/handle complaint, resolution history | Ghi audit, gửi notification cho complaint owner. |
+| Audit Log Module | Append-only trace cho sensitive operations | Được gọi bởi Auth, Users, Pricing, Inventory, Transfers, Reports, Complaints. |
+| PostgreSQL | Lưu dữ liệu transactional và master data | Truy cập qua repositories/services; dùng transaction và read replica. |
+| Redis | Cache, queue, Pub/Sub, ephemeral session/token data | Giảm tải DB, xử lý job và realtime fan-out. |
 
-### 2.1.2 Goals and Context
+# 3. Các quyết định kiến trúc.
 
-- Provide store-scoped access with role-based authorization.
-- Support fast POS transactions and inventory updates.
-- Centralize operations across stores with a shared data model.
-- Provide observability via health, metrics, and logs.
+## 3.1. Các quyết định quan trọng và lý do.
 
-### 2.1.3 Significant Driving Requirements
+| ID Quyết định | Tuyên bố quyết định | Lý do liên kết với ADD/ASR | Trade-off chính |
+| --- | --- | --- | --- |
+| AD-001 | Áp dụng modular monolith với domain module rõ ràng | ADD yêu cầu modifiability: pricing, promotion, loyalty, inventory rule thay đổi cục bộ; phù hợp quy mô đồ án và giảm độ phức tạp vận hành. | Không độc lập deploy từng service như microservice; cần discipline về module boundary. |
+| AD-002 | REST API chuẩn hóa dưới /api/v1 | SRS/ADD yêu cầu RESTful architecture, dễ tích hợp frontend và tài liệu hóa API. | Cần versioning và backward compatibility khi API thay đổi. |
+| AD-003 | JWT + RBAC + store-scoped authorization | Đáp ứng security: 100% protected endpoints yêu cầu JWT và role/store scope. | Token revocation cần cơ chế hỗ trợ nếu muốn thu hồi tức thời. |
+| AD-004 | PostgreSQL làm primary database với transaction boundary | Đảm bảo consistency cho checkout, inventory, loyalty, transfer và rollback. | Cần thiết kế index và transaction cẩn thận để tránh lock lâu. |
+| AD-005 | Redis cho cache, job queue và Pub/Sub | Đáp ứng performance/realtime/background job: catalog cache, price updates, low-stock notification. | Redis failure cần fallback, retry và monitoring. |
+| AD-006 | WebSocket cho realtime dashboard/POS price feed | ADD yêu cầu dashboard updates, POS price synchronization và selected notifications. | Cần store-scoped room để tránh rò rỉ dữ liệu giữa cửa hàng. |
+| AD-007 | Audit log append-only cho sensitive operations | Đáp ứng auditability và investigation cho user permission, stock, pricing, transfer, report export, complaint. | Tăng dung lượng lưu trữ và cần chính sách retention/search. |
+| AD-008 | Rolling deployment và backward-compatible migration | Đáp ứng zero-downtime update và availability targets trong ADD. | Migration phải được thiết kế kỹ, có thể cần triển khai nhiều bước. |
 
-- JWT authentication with role-based access and store scoping.
-- REST API under /api/v1 with Swagger documentation.
-- Catalog caching with Redis and explicit invalidation.
-- Realtime updates through Socket.IO store rooms.
-- PostgreSQL as primary data store with Prisma ORM.
+## 3.2. Các ràng buộc kỹ thuật (Technical Constraints).
 
-## 2.2 Solution Background
+- Frontend bắt buộc dùng ReactJS; backend dùng Node.js và ExpressJS.
 
-### 2.2.1 Architectural Approaches
+- PostgreSQL là database chính; Redis dùng cho cache, queues và Pub/Sub.
 
-- Modular monolith backend: Express routers per domain module.
-- Central API gateway via Express app with security and monitoring middleware.
-- Data access via Prisma and PostgreSQL with transactional boundaries.
-- Redis for catalog cache and background job queue (Bull.js).
-- Socket.IO for store-scoped realtime events.
-- React + Vite frontend with role-based layouts.
+- API tuân thủ RESTful architecture và được version dưới /api/v1.
 
-### 2.2.2 Analysis Results
+- Real-time communication dùng WebSocket cho dashboard update, POS price feed và notification khi cần.
 
-No formal ATAM has been performed. Architecture decisions are validated through unit/integration tests, health checks, and performance targets defined in the SRS. Cache hit rate and response time are monitored via metrics.
+- Docker được dùng cho môi trường local và production packaging.
 
-### 2.2.3 Requirements Coverage
+- Security bắt buộc: JWT, RBAC, store-scoped authorization, HTTPS/TLS, encrypted password, rate limiting và audit logging.
 
-- Auth and RBAC: middleware pipeline and /auth routes.
-- Store scoping: active store resolution and store checks.
-- POS and inventory: domain modules in backend and schema entities.
-- Reporting and audit: reports module and audit_logs module.
-- Observability: /health, /metrics, structured logging.
+- Availability mục tiêu 99.99% production; cần replication, failover, backup, monitoring/alerting và DR runbook.
 
-### 2.2.4 Summary of Background Changes Reflected in Current Version
+- Performance: POS transaction <= 2 giây, dashboard <= 3 giây, dynamic pricing latency < 100ms per item batch khi khả thi, hỗ trợ 5,000 concurrent users.
 
-Initial SAD release reflects Phase 1 enhancements: monitoring, security middleware, and job queue setup.
+## 3.3. Các nguyên tắc thiết kế (Design Principles).
 
-## 2.3 Product Line Reuse Considerations
+- Separation of Concerns: mỗi domain module chịu trách nhiệm rõ ràng, không trộn logic POS, Inventory, Pricing, Reports.
 
-The architecture supports reuse across multiple retail chains by adjusting configuration (stores, roles, pricing rules) and enabling optional modules (loyalty, dynamic pricing).
+- High Cohesion & Loose Coupling: service interface rõ ràng giữa các module, tránh truy cập dữ liệu chéo không kiểm soát.
 
-# 3. Views
+- Security by Design: mọi endpoint protected kiểm tra JWT/RBAC/store scope; dữ liệu nhạy cảm mã hóa và audit log đầy đủ.
 
-## 3.1 Module Decomposition View
+- Design for Failure: timeout, retry, circuit breaker, fallback khi Redis/external integration lỗi.
 
-### 3.1.1 View Description
+- Data Integrity First: các workflow ảnh hưởng nhiều entity dùng database transaction và idempotency key khi cần.
 
-Shows the code-level decomposition into domain modules, shared libraries, and interfaces.
+- Observable by Default: expose /health, /metrics, structured logs và alert cho latency/error/availability.
 
-### 3.1.2 View Packet Overview
+- Configuration over Code: thresholds, loyalty tiers, promotion/pricing parameters lưu trong settings/rule tables khi phù hợp.
 
-Single view packet: backend and frontend module decomposition.
+- Backward Compatibility: API và migration cần hỗ trợ rolling deployment và rollback.
 
-### 3.1.3 Architecture Background
+# 4. Kiến trúc logic.
 
-Modules align to business domains and API routes. Each router contains its own Prisma access and validation.
+## 4.1. Các Module chính.
 
-### 3.1.4 Variability Mechanisms
+| Module | Use Case liên quan | Trách nhiệm | Dữ liệu chính |
+| --- | --- | --- | --- |
+| Auth, Users, Roles | UC01-UC03 | Login, user CRUD, role/permission config, JWT, RBAC, failed login monitoring. | users, roles, permissions, sessions, login_attempts |
+| Stores & Dashboard | UC04-UC05 | Create/update store, dashboard scope, KPI retrieval, inventory/sales summaries. | stores, store_assignments, dashboard_snapshots |
+| POS & Transactions | UC06, UC07, UC16, UC17 | Checkout, loyalty link, close shift, transaction history, receipt generation. | transactions, transaction_items, payments, receipts, shifts |
+| Loyalty | UC08-UC10 | Calculate points, redeem points, tier upgrade and loyalty ledger. | loyalty_members, loyalty_transactions, tier_history, policies |
+| Promotions | UC11-UC12 | Promotion CRUD, eligibility, best benefit selection, discount calculation. | promotions, promotion_rules |
+| Dynamic Pricing | UC13-UC15, UC29-UC30 | Pricing rules, scheduled execution, price history, A/B tests, rollback. | pricing_rules, price_history, pricing_experiments |
+| Products & Inventory | UC18-UC19, UC25-UC26 | Product catalog, stock adjustment, low-stock threshold and notification. | products, categories, skus, inventories, stock_movements, alert_rules |
+| Transfers | UC20-UC21 | Create transfer request, approve/reject, move stock atomically. | transfers, transfer_items, approvals |
+| Reports & Analytics | UC22-UC24, UC28 | Store/chain report, realtime analytics, export PDF/XLSX/CSV. | reports, report_metadata, export_files, analytics_snapshots |
+| Complaints & Governance | UC27 + audit | Complaint handling, resolution history, audit log and settings. | complaints, complaint_status_history, audit_logs, settings |
 
-Feature flags can be introduced per module; optional modules (loyalty, pricing) are already isolated.
+## 4.2. Luồng dữ liệu và xử lý.
 
-### 3.1.5 View Packets
+### 4.2.1. POS Checkout
 
-#### 3.1.5.1 View Packet 1
+1. Cashier quét barcode; frontend thêm item vào cart và gọi /api/v1/pos/checkout.
 
-##### Primary Presentation
+2. Auth middleware xác thực JWT, RBAC và store scope.
 
-```
-backend/
-  src/
-    app.ts (middleware pipeline)
-    routes/index.ts (route registry)
-    modules/
-      auth, users, stores, products, inventory, orders, pos,
-      invoices, returns, transfers, promotions, complaints,
-      reports, audit_logs, settings, loyalty, pricing
-    lib/ (monitoring, queues, infrastructure)
-frontend/
-  src/
-    services/ (axios client, API wrappers)
-    layouts/ (role-based shells)
-    pages/ (feature pages)
-```
+3. POS service lấy giá hiện hành từ Redis/PostgreSQL, kiểm tra tồn kho, gọi Promotion/Pricing/Loyalty service.
 
-##### Element Catalog
+4. PostgreSQL transaction tạo transaction/payment/receipt, trừ tồn kho, cập nhật loyalty ledger và ghi audit log.
 
-- Elements: domain modules, shared libs, API client, UI layouts.
-- Relations: routes import modules, modules use Prisma, UI uses services.
-- Interfaces: REST endpoints, axios service wrappers.
-- Behavior: request validation, store scoping, cache invalidation.
-- Constraints: each module owns its route prefix.
+5. Sau commit, hệ thống enqueue low-stock check job và emit inventory update qua WebSocket store room.
 
-##### Context Diagram
+### 4.2.2. Dynamic Pricing Execution
 
-```
-[Browser] -> [Frontend] -> [Backend API] -> [PostgreSQL]
-                            |-> [Redis]
-```
+1. Scheduler kích hoạt pricing rule đang active.
 
-##### Variability Mechanisms
+2. Pricing engine đọc demand/inventory/rule parameters, tính new price và kiểm tra min/max guardrail.
 
-Optional modules (loyalty, pricing) can be enabled per deployment.
+3. Nếu hợp lệ, ghi price_history, cập nhật product price và publish price update đến POS clients.
 
-##### Architecture Background
+4. Nếu bị reject, ghi audit log PRICE_REJECTED.
 
-The modular monolith reduces operational overhead while keeping domain boundaries explicit.
+### 4.2.3. Inter-store Transfer Approval
 
-##### Related View Packets
+1. Inventory Staff tạo transfer request với source/destination store và danh sách items.
 
-See Component-and-Connector View for runtime behavior.
+2. Store Manager hoặc District Manager xem chi tiết và quyết định approve/reject.
 
-## 3.2 Component-and-Connector View
+3. Khi approve, hệ thống kiểm tra stock và dùng transaction để trừ source, cộng destination, cập nhật transfer status.
 
-### 3.2.1 View Description
+4. Notification gửi cho requester; audit log ghi actor, decision và stock movement.
 
-Shows runtime components and their interactions.
+### 4.2.4. Low-stock Notification
 
-### 3.2.2 View Packet Overview
+1. Inventory monitoring job so sánh inventory.qty với alert threshold.
 
-Single view packet: runtime request flow and realtime events.
+2. Khi qty <= threshold, tạo low-stock event và đưa vào Redis job queue.
 
-### 3.2.3 Architecture Background
+3. Notification service gửi thông báo cho Inventory Staff theo store.
 
-The system separates stateless API handling from stateful data stores and cache.
+4. Nếu gửi thất bại, retry theo cấu hình; persistent failure được ghi audit/alert.
 
-### 3.2.4 Variability Mechanisms
+### 4.2.5. Report Export
 
-Realtime channels are store-scoped; cache TTL is configurable.
+1. User chọn report và format PDF/XLSX/CSV.
 
-### 3.2.5 View Packets
+2. Report service kiểm tra role/store scope và filter/date range.
 
-#### 3.2.5.1 View Packet 1
+3. Nếu report nặng, enqueue job; nếu nhẹ, render trực tiếp.
 
-##### Primary Presentation
+4. File export được lưu kèm metadata và chỉ user có quyền mới tải được.
 
-```
-Client -> API (Express) -> Prisma -> PostgreSQL
-                     |-> Redis (cache/queue)
-                     |-> Socket.IO (store rooms)
-```
+### 4.2.6. Login và Authorization
 
-##### Element Catalog
+1. User gửi username/password.
 
-- Elements: React client, Express API, Prisma, PostgreSQL, Redis, Socket.IO.
-- Relations: HTTP requests, DB queries, cache get/set, websocket events.
-- Interfaces: REST /api/v1, /socket.io, /health, /metrics.
-- Behavior: authenticate -> authorize -> resolve store -> execute module.
-- Constraints: non-admin store access restricted by x-store-id.
+2. Auth service validate input, kiểm tra user status, so sánh password hash và tạo JWT.
 
-##### Context Diagram
+3. Frontend nhận role/scope để render dashboard/menu phù hợp.
 
-```
-External User
-  | HTTP/WS
-[Frontend] <-> [API Server] <-> [PostgreSQL]
-                      |-> [Redis]
-```
+4. Mọi request tiếp theo đều qua JWT middleware và RBAC/store-scope enforcement.
 
-##### Variability Mechanisms
+# 5. Kiến trúc vật lý.
 
-Cache TTL and scheduling intervals are configurable.
+## 5.1. Tổng quan triển khai.
 
-##### Architecture Background
+Hệ thống hỗ trợ triển khai local bằng Docker Compose và production bằng các API node stateless sau load balancer. PostgreSQL và Redis không được public ra Internet; frontend giao tiếp với backend qua HTTPS. Observability được triển khai qua health check, metrics, centralized logs và alerting.
 
-Store-scoped rooms isolate realtime events per store.
+- Local development: React dev server, Express API, PostgreSQL và Redis chạy bằng Docker Compose.
 
-##### Related View Packets
+- Production: WAF/DDoS protection phía trước Load Balancer; API nodes stateless có thể scale ngang.
 
-Deployment view describes runtime placement.
+- Database: PostgreSQL primary + read replica/failover; backup định kỳ, RPO/RTO theo ADD.
 
-## 3.3 Deployment View
+- Redis cluster: cache, queue, Pub/Sub và WebSocket adapter.
 
-### 3.3.1 View Description
+- Monitoring: /health, /metrics, log tập trung, dashboard và alert cho lỗi/latency.
 
-Shows how software is deployed across runtime environments.
+## 5.2. Thành phần sử dụng.
 
-### 3.3.2 View Packet Overview
+| Thành phần | Công nghệ/Dịch vụ | Vai trò |
+| --- | --- | --- |
+| Frontend hosting | Static host/CDN hoặc web server | Phân phối React build, giảm latency cho assets. |
+| Security perimeter | HTTPS/TLS, WAF, DDoS protection, rate limiting | Bảo vệ endpoint public và giới hạn lạm dụng. |
+| Load Balancer | Nginx/Cloud LB | Điều phối traffic đến API nodes, health check routing. |
+| Backend API | Node.js + ExpressJS Docker containers | Xử lý REST API, middleware, domain services. |
+| Realtime | WebSocket service/Socket.IO hoặc tương đương | Store-scoped room cho dashboard/price/notification events. |
+| Database | PostgreSQL primary + replica | Lưu transactional/master data, đảm bảo ACID và read scaling. |
+| Caching/Queue/PubSub | Redis cluster | Cache catalog/pricing, queue notification/report jobs, Pub/Sub realtime. |
+| Monitoring | Prometheus/Grafana hoặc tương đương | Scrape metrics, dashboard, alert latency/error/availability. |
+| Logging | Centralized JSON log store | Lưu log 90 ngày hoặc theo policy; hỗ trợ điều tra sự cố. |
+| CI/CD | GitHub Actions hoặc tương đương | Build, test, dependency/CVE scan, deploy/rollback. |
+| Containerization | Docker/Docker Compose | Đóng gói và tạo môi trường nhất quán. |
 
-Single view packet: local and container-based deployment.
+# 6. Bảo mật.
 
-### 3.3.3 Architecture Background
+## 6.1. Xác thực (Authenticate).
 
-The system supports local dev with Vite proxy and backend running on port 3000.
+Người dùng cố gắng đăng nhập hoặc truy cập hệ thống. Auth module validate input, kiểm tra trạng thái tài khoản, so sánh mật khẩu đã hash với salt, tạo JWT có thời hạn, ghi log login success/failure và theo dõi failed-login rate. Response measure: 100% protected endpoint yêu cầu JWT; login xử lý trong mục tiêu hiệu năng; tất cả login attempts được ghi log.
 
-### 3.3.4 Variability Mechanisms
+## 6.2. Phân quyền (Authorization).
 
-API and cache endpoints are set via environment variables.
+RBAC và store-scoped authorization được áp dụng trên backend cho Admin, District Manager, Store Manager, Cashier, Inventory Staff và Loyalty Member. Frontend chỉ render module phù hợp role nhưng backend vẫn là nơi enforcement cuối cùng. Response measure: 100% unauthorized access bị chặn và log; permission change ghi audit log.
 
-### 3.3.5 View Packets
+## 6.3. Bảo vệ API và dịch vụ.
 
-#### 3.3.5.1 View Packet 1
+Tất cả API production dùng HTTPS/TLS. Middleware áp dụng validation/sanitization, rate limiting, CORS, request logging và error handling. Endpoint nhạy cảm như pricing rollback, transfer approval, report export phải kiểm tra role/scope và audit. Webhook payment tương lai phải verify signature và idempotency key.
 
-##### Primary Presentation
+## 6.4. Mã hóa dữ liệu.
 
-```
-[User Browser]
-    -> Vite Dev Server (frontend)
-    -> API Server (backend)
-         -> PostgreSQL
-         -> Redis
-```
+Password được hash bằng thuật toán mạnh có salt. PII và dữ liệu nhạy cảm được mã hóa at rest theo chính sách. API keys/secrets không nằm trong source code, được quản lý bằng secret manager hoặc cơ chế tương đương. Backup và export file cần quyền truy cập phù hợp.
 
-##### Element Catalog
+## 6.5. Bảo vệ tài nguyên hạ tầng.
 
-- Elements: frontend dev server, backend API, PostgreSQL, Redis.
-- Relations: Vite proxy to /api/v1 and /socket.io.
-- Interfaces: HTTP ports 5173 and 3000; DB 5432; Redis 6379.
-- Behavior: stateless API nodes can scale horizontally.
-- Constraints: environment variables for DB and JWT secrets.
+Database và Redis chỉ mở trong private network. Admin/monitoring consoles được giới hạn IP/role. Không commit secrets. Server/container image được scan CVE. Health/metrics endpoint được bảo vệ phù hợp để tránh lộ thông tin nhạy cảm.
 
-##### Context Diagram
+## 6.6. Audit logging.
 
-```
-[Browser] -> [Vite] -> [API] -> [PostgreSQL]
-                       |-> [Redis]
-```
+Các thao tác nhạy cảm gồm quản lý user/role, store update, stock adjustment, transfer approval, pricing change, rollback, report export và complaint resolution phải tạo audit log append-only với actor, action, entity, timestamp, old/new value, result và request source.
 
-##### Variability Mechanisms
+| Vai trò | Trách nhiệm chính | Ví dụ quyền hạn cụ thể |
+| --- | --- | --- |
+| Admin | Quản trị toàn hệ thống | Manage Users, Configure Roles, Store Management, Pricing Rollback, Reports, Audit Logs. |
+| District Manager | Quản lý theo khu vực/chuỗi | Dashboard khu vực, Promotion/Pricing, Chain Report, Transfer Approval. |
+| Store Manager | Quản lý cửa hàng | Store Dashboard, Close Shift, Inventory, Transfer Approval, Complaints, Store Report. |
+| Cashier | Bán hàng tại POS | Create POS Transaction, Apply Loyalty, Redeem Points, View Transaction History theo scope. |
+| Inventory Staff | Quản lý tồn kho | Update Stock, Create Transfer, Receive Low-stock Notification. |
+| Loyalty Member | Tương tác khách hàng | View history/points, redeem points theo policy, submit complaint. |
 
-Containerized deployment via Docker Compose is supported.
+# 7. Hiệu năng và khả năng mở rộng.
 
-##### Architecture Background
+## 7.1. Đảm bảo hiệu năng.
 
-Health checks are exposed at /health with metrics at /metrics.
+- Redis cache cho catalog, active promotion/pricing rules và dashboard data có tần suất đọc cao.
 
-##### Related View Packets
+- Index PostgreSQL trên SKU, barcode, product name, store_id, transaction date, status và các khóa ngoại chính.
 
-See Data View for data storage details.
+- Pagination cho product search, transaction history, audit log và report listing.
 
-## 3.4 Data View
+- Background job cho report nặng, notification và các tác vụ không cần trả lời đồng bộ.
 
-### 3.4.1 View Description
+- Giữ POS critical path ngắn; promotion/pricing/loyalty calculation được tối ưu để checkout <= 2 giây under normal load.
 
-Summarizes major entities and relationships in the data model.
+- Prometheus-compatible metrics theo dõi latency P95, error rate, queue depth, DB connection pool và cache hit rate.
 
-### 3.4.2 View Packet Overview
+## 7.2. Phương án mở rộng.
 
-Single view packet: core operational entities.
+- Mở rộng ngang API nodes vì backend stateless; load balancer phân phối traffic.
 
-### 3.4.3 Architecture Background
+- PostgreSQL read replica phục vụ report/read-heavy workloads; primary xử lý transaction writes.
 
-The Prisma schema defines the authoritative data model and constraints.
+- Redis cluster để tăng khả năng chịu tải cache/queue/PubSub.
 
-### 3.4.4 Variability Mechanisms
+- Tách worker pool cho report generation, notification và low-stock monitoring để không ảnh hưởng request path.
 
-Optional entities for loyalty and pricing can be enabled per deployment phase.
+- Backpressure/rate limiting cho report export lớn hoặc API có nguy cơ bị lạm dụng.
 
-### 3.4.5 View Packets
+## 7.3. Độ sẵn sàng và độ tin cậy.
 
-#### 3.4.5.1 View Packet 1
+- Production uptime target 99.99% theo ADD/ASR, với full HA setup.
 
-##### Primary Presentation
+- MTTR mục tiêu < 30 phút; RPO < 1 giờ; RTO < 4 giờ cho disaster recovery.
 
-Key entities:
+- Health checks /health cho load balancer; metrics /metrics cho monitoring.
 
-- stores, users, roles, user_stores
-- products, product_variants, categories, brands, variant_prices
-- inventories, stock_lots, stock_movements
-- purchase_orders, purchase_order_receipts
-- store_transfers, store_transfer_items
-- invoices, invoice_items, returns, return_items
-- promotions, complaints, audit_logs, settings
+- Automated backup, replication, failover procedure và DR runbook được kiểm thử định kỳ.
 
-##### Element Catalog
+- Retry và circuit breaker cho integration/external dependencies; lỗi được log và alert.
 
-- Elements: entities above.
-- Relations: store scoped entities reference store_id.
-- Interfaces: Prisma model access and REST endpoints.
-- Behavior: transactional updates for inventory and sales.
-- Constraints: unique SKU and barcode; non-negative inventory.
+# 8. Rủi ro và phương án giảm thiểu.
 
-##### Context Diagram
+| Rủi ro | Mô tả | Ảnh hưởng | Giảm thiểu | Xử lý khi xảy ra |
+| --- | --- | --- | --- | --- |
+| Redis không khả dụng | Mất cache, queue hoặc Pub/Sub làm chậm POS/dashboard/notification. | Cao | Redis cluster, TTL hợp lý, fallback đọc DB, monitor queue depth. | Fallback sang DB, tạm dừng job không critical, alert DevOps, khôi phục Redis. |
+| PostgreSQL lỗi hoặc mất kết nối | Core transaction không thể ghi/đọc ổn định. | Rất cao | Replication, backup, connection pool, failover test. | Failover sang replica, khôi phục snapshot, kiểm tra data consistency. |
+| POS checkout chậm trong giờ cao điểm | Checkout vượt 2 giây ảnh hưởng cashier và khách hàng. | Cao | Cache catalog/rules, tối ưu index, tách background job, load test. | Tăng API nodes/workers, giảm report jobs, theo dõi bottleneck. |
+| Sai lệch tồn kho hoặc loyalty balance | Transaction lỗi giữa POS, Inventory, Loyalty gây dữ liệu không nhất quán. | Rất cao | PostgreSQL transactions, stock validation, idempotency, audit log. | Chạy reconciliation, rollback/compensating transaction, điều tra audit log. |
+| Rò rỉ JWT hoặc lạm dụng quyền | Người dùng trái phép truy cập dữ liệu store/report. | Cao | Token expiry, HTTPS, RBAC/store scope, audit, monitoring failed access. | Thu hồi session/token nếu có, rotate secrets, điều tra log, vá lỗi scope. |
+| Dynamic pricing áp giá sai | Rule lỗi hoặc rollback không đồng bộ đến POS. | Cao | Guardrail min/max price, price history, approval/audit, PubSub sync. | Rollback price, publish update lại, thông báo affected stores, audit incident. |
+| Report/analytics không chính xác | Báo cáo lệch do filter/sync hoặc quyền truy cập sai. | Trung bình-Cao | Controlled report service, scope checks, metadata, warning khi sync incomplete. | Regenerate report, sửa aggregation, thông báo người dùng nếu report đã export sai. |
+| Deployment gây downtime | Migration hoặc release lỗi ảnh hưởng cửa hàng đang hoạt động. | Cao | Rolling deployment, backward-compatible migration, health checks, rollback. | Rollback version, pause migrations, restore backup nếu cần. |
+| Low-stock notification không gửi | Inventory Staff không nhận cảnh báo replenishment. | Trung bình | Queue retry, audit failed notification, monitoring provider. | Retry thủ công/tự động, alert manager, kiểm tra notification provider. |
 
-```
-[API] -> [Prisma] -> [PostgreSQL]
-```
+# 9. Traceability với ADD/ASR.
 
-##### Variability Mechanisms
+Bảng sau cho thấy SAD sau chỉnh sửa đã bám theo các quality attributes và architectural representation trong ADD đã chỉnh theo ASR.
 
-Additional analytical tables can be added without changing core POS flows.
-
-##### Architecture Background
-
-Audit logs provide traceability for critical operations.
-
-##### Related View Packets
-
-Module view maps entities to domain modules.
-
-# 4. Relations Among Views
-
-## 4.1 General Relations Among Views
-
-- Module view defines code ownership for elements shown in runtime and data views.
-- Component view shows execution of modules at runtime.
-- Deployment view maps components to runtime environments.
-- Data view provides persistence for module behavior.
-
-## 4.2 View-to-View Relations
-
-- Each backend module in the Module View maps to a route in the Component View.
-- Data entities map to module responsibilities (e.g., inventory module -> inventories, stock_movements).
-- Deployment nodes host the components described in the Component View.
-
-# 5. Referenced Materials
-
-- [README.md](README.md)
-- [SRS.md](SRS.md)
-- [BRD.md](BRD.md)
-- [backend/README.md](backend/README.md)
-- [frontend/README.md](frontend/README.md)
-- [backend/docs/system_design](backend/docs/system_design)
-- [backend/prisma/schema.prisma](backend/prisma/schema.prisma)
-
-# 6. Directory
-
-## 6.1 Index
-
-Not maintained in this release.
-
-## 6.2 Glossary
-
-| Term        | Definition                                     |
-| ----------- | ---------------------------------------------- |
-| SAD         | Software Architecture Document                 |
-| View        | Representation of architectural structure      |
-| Store scope | Active store context enforced by access checks |
-
-## 6.3 Acronym List
-
-| Acronym | Meaning                             |
-| ------- | ----------------------------------- |
-| API     | Application Programming Interface   |
-| POS     | Point of Sale                       |
-| RBAC    | Role Based Access Control           |
-| JWT     | JSON Web Token                      |
-| SRS     | Software Requirements Specification |
-
-# 7. Sample Figures and Tables
-
-Not applicable in this release.
-
-# 8. Appendices
-
-## Appendix A - API Surface Summary
-
-Base path: /api/v1
-
-Primary route groups:
-
-- /auth, /users, /stores
-- /products, /categories, /inventory, /pricing
-- /orders, /invoices, /returns, /pos, /transfers
-- /promotions, /complaints, /loyalty
-- /reports, /audit-logs, /settings
+| ADD/ASR concern | SAD coverage | Ghi chú |
+| --- | --- | --- |
+| Security: Authentication, Authorization, Data Protection, Audit Logging | Section 3.2, 6.1-6.6 | JWT, RBAC, store scope, HTTPS/TLS, encrypted data, append-only audit. |
+| Performance: POS <= 2s, Dashboard <= 3s, Pricing <100ms | Section 2, 4.2, 7.1 | Cache, index, async jobs, optimized POS critical path. |
+| Scalability: 5,000 concurrent users | Section 2.1, 5.1, 7.2 | Stateless API nodes, LB, Redis, read replicas. |
+| Usability: POS/inventory/report workflows | Section 1.1, 4.2, 6 role table | Role-based UI, validation, clear messages. |
+| Interoperability: scanner, report export, future payment gateway | Section 2.2, 4.2, 5.2, 6.3 | Barcode input, PDF/XLSX/CSV, webhook design. |
+| Modifiability: pricing/promotion/loyalty/rules | Section 3.1, 3.3, 4.1 | Domain modules, rule/config tables, low-impact changes. |
+| Availability/Reliability: failover, backups, monitoring | Section 5, 7.3, 8 | Health checks, metrics, replication, RPO/RTO, DR runbook. |
+| Data Integrity: POS, inventory, loyalty, transfer, rollback | Section 3.1, 4.2, 8 | PostgreSQL transactions, idempotency, audit and reconciliation. |

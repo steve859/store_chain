@@ -1,632 +1,1082 @@
-# Software Requirements Specification (IEEE 830)
+# SRS
+
+_Source file: `Completed_Store_Chain_SRS_With_Pseudocode_Business_Rules.docx`_
+
+SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
 
 Store Chain Management System
-Version 1.0
-Date: 2026-03-29
 
-## Revision History
+Version 1.5 - Completed with Yes/No Activity Diagrams and Pseudocode Business Rules
 
-| Version | Date       | Author | Description     |
-| ------- | ---------- | ------ | --------------- |
-| 1.0     | 2026-03-29 | TBD    | Initial release |
+# Revision and Sign Off Sheet
 
-## Table of Contents
-
-1. Introduction
-   1.1 Purpose
-   1.2 Scope
-   1.3 Definitions, Acronyms, and Abbreviations
-   1.4 References
-   1.5 Overview
-2. Overall Description
-   2.1 Product Perspective
-   2.2 Product Functions
-   2.3 User Classes and Characteristics
-   2.4 Operating Environment
-   2.5 Design and Implementation Constraints
-   2.6 User Documentation
-   2.7 Dependencies
-3. System Features
-   3.1 Authentication and Authorization
-   3.2 User and Role Management
-   3.3 Store Management
-   3.4 Product Catalog, Categories, Brands, and Pricing
-   3.5 Inventory and Stock Movement
-   3.6 Procurement and Supplier Management
-   3.7 Transfers Between Stores
-   3.8 POS Sales and Shifts
-   3.9 Invoices and Orders
-   3.10 Returns and Refunds
-   3.11 Promotions and Discounts
-   3.12 Complaints Handling
-   3.13 Reports and Dashboard
-   3.14 Audit Logs
-   3.15 Settings and Maintenance
-   3.16 Realtime Notifications
-   3.17 Catalog Cache
-4. External Interface Requirements
-5. Non-functional Requirements
-6. Use Cases
-7. System Architecture
-8. Data Model
-9. Assumptions and Constraints
+| Author | Version | Change Reference | Date |
+| --- | --- | --- | --- |
+| Team | 1.0 | Finalize original SRS document | 16/05/2026 |
+| Team | 1.1 | Align SRS with enhanced BRD | 23/05/2026 |
+| Team | 1.2 | Add Activities Flow and Business Rules for use cases | 23/05/2026 |
+| Team | 1.4 | Convert Activities Flow into Yes/No decision diagrams | 23/05/2026 |
+| Team | 1.5 | Rewrite Business Rules in pseudocode style similar to template | 23/05/2026 |
 
 # 1. Introduction
 
 ## 1.1 Purpose
 
-This document specifies the requirements for the Store Chain Management System. It follows IEEE 830 and describes system scope, features, interfaces, constraints, and quality requirements for implementation and testing.
+This document serves as the Software Requirements Specification for the Store Chain Management System project. It defines the functional requirements, non-functional requirements, activity flows, business rules, and supporting information required for implementation and testing.
 
 ## 1.2 Scope
 
-The system provides end-to-end operations management for a retail store chain. Core domains include products, pricing, inventory, procurement, transfers, POS sales, returns, promotions, complaints, reporting, and audit logs. The system is delivered as a web application with a REST API backend, database, cache, and web frontend.
+The Store Chain Management System is a web-based multi-store retail management platform supporting store management, POS operations, inventory management, dynamic pricing, promotions, loyalty programs, reporting, analytics, and complaint management.
 
-## 1.3 Definitions, Acronyms, and Abbreviations
+## 1.3 Intended Audiences and Document Organization
 
-- POS: Point of Sale
-- SKU: Stock Keeping Unit
-- RBAC: Role-Based Access Control
-- JWT: JSON Web Token
-- API: Application Programming Interface
-- TTL: Time To Live
+- Development team: implement features based on functional requirements, activity diagrams, and business rules.
 
-## 1.4 References
+- Testing team: prepare test cases from use case descriptions, alternative flows, and business rules.
 
-- Root README: [README.md](README.md)
-- Backend README: [backend/README.md](backend/README.md)
-- Frontend README: [frontend/README.md](frontend/README.md)
-- Prisma schema: [backend/prisma/schema.prisma](backend/prisma/schema.prisma)
-- OpenAPI annotations: [backend/src/docs/openapi.annotations.ts](backend/src/docs/openapi.annotations.ts)
+- Business stakeholders: confirm that software requirements satisfy business requirements.
 
-## 1.5 Overview
+- Project managers and architects: use the document to plan delivery, integration, and deployment.
 
-Section 2 provides a product overview. Section 3 details functional requirements. Sections 4 and 5 describe interfaces and non-functional requirements. Sections 6 to 9 provide use cases, architecture, data model, and constraints.
+# 2. Functional Requirements
 
-# 2. Overall Description
+## 2.1 Use Case Description
 
-## 2.1 Product Perspective
+### UC01: Login
 
-The product is a multi-tier web system consisting of a React frontend, a Node.js/Express REST API, a PostgreSQL database accessed via Prisma, and Redis for caching. Socket.IO provides realtime updates scoped to stores.
+| Name | Login |
+| --- | --- |
+| Description | Authenticate users into the system. |
+| Actor | Admin, District Manager, Store Manager, Cashier, Inventory Staff, Loyalty Member |
+| Trigger | User selects the login function. |
+| Pre-condition | User account exists and is active. |
+| Post-condition | User accesses a dashboard according to assigned role. |
+| Priority | High |
 
-## 2.2 Product Functions
+#### Activities Flow
 
-- Authenticate users and enforce RBAC and store scope.
-- Manage stores, users, roles, and store assignments.
-- Manage products, variants, categories, brands, and store-specific pricing.
-- Track inventory, stock lots, and stock movements.
-- Manage procurement, purchase orders, and receiving.
-- Support stock transfers between stores.
-- Operate POS sales with shifts, cash movements, and checkout.
-- Manage invoices, returns, and refunds.
-- Manage promotions and discounts.
-- Record complaints and track resolution.
-- Provide reports and dashboards.
-- Record audit logs and system settings.
+Figure 1: Yes/No Activity Flow Diagram - UC01 Login
 
-## 2.3 User Classes and Characteristics
+#### Alternative / Exception Flow
 
-- Admin: Full system configuration, store setup, user and role management, reports, and audit access.
-- Store Manager: Store operations, inventory, procurement, transfers, reports, and approvals.
-- Employee: Day-to-day operations, inventory updates, receiving, and complaints.
-- Cashier: POS checkout, shift management, returns within policy.
-- Auditor/Owner: Read-only access to reports and audit logs.
+- No branch: Show disabled account message.
 
-## 2.4 Operating Environment
+- No branch: Show invalid login message.
 
-- Server: Linux/Windows/Mac with Node.js 20+.
-- Database: PostgreSQL.
-- Cache: Redis 7+.
-- Client: Modern browsers (Chrome, Edge, Firefox, Safari).
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-## 2.5 Design and Implementation Constraints
+#### Business Rules
 
-- Backend and frontend are implemented in TypeScript.
-- Backend uses Express with REST endpoints under /api/v1.
-- Authentication uses JWT with Authorization: Bearer tokens.
-- Store context is resolved from x-store-id or storeId input.
-- Data access uses Prisma with PostgreSQL.
-- Catalog caching uses Redis with TTL 30-60 seconds.
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (3) | BR011 | Validate Rules:<br>INPUT [username], [password]<br>IF [username] IS NULL OR [password] IS NULL THEN<br>    SHOW MSG02<br>ELSE<br>    [user] = UserRepository.findByUsername([username])<br>    IF [user] == NULL THEN SHOW MSG04<br>    ELSE IF [user.status] != ACTIVE THEN SHOW MSG03<br>    ELSE IF hash([password]) != [user.password] THEN SHOW MSG04<br>    ELSE generateJWT([user.id], [user.role]) |
+| (4) | BR012 | Session Rules:<br>IF authentication == SUCCESS THEN<br>    [session.createdAt] = currentDateTime<br>    [session.expiredAt] = currentDateTime + SESSION_TIMEOUT<br>    save([session])<br>    WRITE AuditLog(action = LOGIN, actor = [user.id]) |
+| (5) | BR013 | Redirect Rules:<br>SWITCH ([user.role])<br>    CASE Admin: redirectTo(AdminDashboard)<br>    CASE DistrictManager: redirectTo(ChainDashboard)<br>    CASE StoreManager: redirectTo(StoreDashboard)<br>    CASE Cashier: redirectTo(POSScreen)<br>    CASE InventoryStaff: redirectTo(InventoryScreen)<br>    DEFAULT: redirectTo(MemberDashboard) |
 
-## 2.6 User Documentation
+### UC02: Manage Users
 
-- Installation and run guide: [README.md](README.md)
-- API documentation via Swagger UI at /api-docs (runtime).
+| Name | Manage Users |
+| --- | --- |
+| Description | Create, update, deactivate, or remove user accounts. |
+| Actor | Admin |
+| Trigger | Admin accesses user management module. |
+| Pre-condition | Admin is authenticated and has user management permission. |
+| Post-condition | User account information is updated successfully. |
+| Priority | High |
 
-## 2.7 Dependencies
+#### Activities Flow
 
-- PostgreSQL and Redis availability.
-- Environment variables for DATABASE_URL, JWT_SECRET, and REDIS_URL.
-- Accurate server time for pricing windows, audit timestamps, and reports.
+Figure 2: Yes/No Activity Flow Diagram - UC02 Manage Users
 
-# 3. System Features
+#### Alternative / Exception Flow
 
-## 3.1 Authentication and Authorization
+- No branch: Show permission denied.
 
-Description: Authenticate users and enforce RBAC with store scope. Priority: High.
+- No branch: Show validation error.
 
-Functional Requirements:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- REQ-AUTH-001: The system shall authenticate users using username or email with password.
-- REQ-AUTH-002: The system shall issue a JWT containing userId, role, and store scope.
-- REQ-AUTH-003: The system shall reject requests with missing or invalid tokens.
-- REQ-AUTH-004: The system shall enforce role-based access control per endpoint.
-- REQ-AUTH-005: The system shall resolve active store from x-store-id or storeId input.
-- REQ-AUTH-006: The system shall deny non-admin access to stores outside the user scope.
-- REQ-AUTH-007: The system shall provide an endpoint to return the current user profile.
+#### Business Rules
 
-## 3.2 User and Role Management
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR021 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] != Admin THEN<br>    SHOW MSG03<br>    STOP PROCESS<br>ELSE load(UserManagementScreen) |
+| (4) | BR022 | Validate Rules:<br>INPUT [username], [email], [role], [status], [storeId]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF UserRepository.existsByUsername([username]) THEN SHOW MSG05<br>IF UserRepository.existsByEmail([email]) THEN SHOW MSG05<br>IF RoleRepository.exists([role]) == FALSE THEN SHOW MSG05 |
+| (5) | BR023 | Saving Rules:<br>IF operation == CREATE THEN<br>    [user.id] = autoGenerate()<br>    [user.password] = generateTemporaryPassword()<br>    [user.status] = ACTIVE<br>    UserRepository.save([user])<br>ELSE IF operation == UPDATE THEN<br>    [user] = UserRepository.findById([userId])<br>    update([user], request.body)<br>ELSE IF operation == DELETE THEN<br>    [user.status] = DISABLED<br>WRITE AuditLog(action = MANAGE_USER)<br>SHOW MSG01 |
 
-Description: Manage users, roles, and store assignments. Priority: High.
+### UC03: Configure Roles and Permissions
 
-Functional Requirements:
+| Name | Configure Roles and Permissions |
+| --- | --- |
+| Description | Configure RBAC roles and permissions. |
+| Actor | Admin |
+| Trigger | Admin opens RBAC configuration module. |
+| Pre-condition | Admin is authenticated. |
+| Post-condition | Role and permission configuration is updated. |
+| Priority | High |
 
-- REQ-USER-001: The system shall allow admins to create, update, and deactivate users.
-- REQ-USER-002: The system shall support assigning users to one or more stores.
-- REQ-USER-003: The system shall allow setting a primary store per user.
-- REQ-USER-004: The system shall expose metadata for roles and stores for UI forms.
-- REQ-USER-005: The system shall enforce unique usernames and emails.
+#### Activities Flow
 
-## 3.3 Store Management
+Figure 3: Yes/No Activity Flow Diagram - UC03 Configure Roles and Permissions
 
-Description: Manage store profiles and availability. Priority: High.
+#### Alternative / Exception Flow
 
-Functional Requirements:
+- No branch: Show permission denied.
 
-- REQ-STORE-001: The system shall allow admins to create and update stores.
-- REQ-STORE-002: The system shall allow deactivation of stores without data loss.
-- REQ-STORE-003: The system shall provide store overview metrics (inventory, sales, staff).
-- REQ-STORE-004: The system shall support search and pagination for store lists.
+- No branch: Reject permission setting.
 
-## 3.4 Product Catalog, Categories, Brands, and Pricing
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-Description: Manage product master data and store-specific pricing. Priority: High.
+#### Business Rules
 
-Functional Requirements:
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR031 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] != Admin THEN SHOW MSG03<br>ELSE load(RBACConfigurationScreen) |
+| (3) | BR032 | Configuration Rules:<br>INPUT [roleId], [permissionList]<br>[role] = RoleRepository.findById([roleId])<br>IF [role] == NULL THEN SHOW MSG05<br>IF [permissionList] IS EMPTY THEN SHOW MSG02<br>FOR EACH [permission] IN [permissionList]:<br>    IF PermissionRepository.exists([permission]) == FALSE THEN SHOW MSG05 |
+| (5) | BR033 | Saving Rules:<br>IF validation == SUCCESS THEN<br>    RolePermissionRepository.deleteByRole([roleId])<br>    FOR EACH [permission] IN [permissionList]:<br>        RolePermissionRepository.save([roleId], [permission])<br>    WRITE AuditLog(action = UPDATE_ROLE_PERMISSION)<br>    SHOW MSG01 |
 
-- REQ-PROD-001: The system shall allow CRUD operations for products and variants.
-- REQ-PROD-002: The system shall enforce unique SKU, variant code, and barcode constraints.
-- REQ-PROD-003: The system shall allow CRUD operations for categories and brands.
-- REQ-PROD-004: The system shall provide a store-scoped catalog view combining product, price, and inventory.
-- REQ-PROD-005: The system shall allow store-specific pricing with effective start and end times.
-- REQ-PROD-006: The system shall reject overlapping price windows per store and variant.
-- REQ-PROD-007: The system shall support search by name, SKU, or barcode.
+### UC04: Create or Update Store
 
-## 3.5 Inventory and Stock Movement
+| Name | Create or Update Store |
+| --- | --- |
+| Description | Create or update store information. |
+| Actor | Admin, District Manager |
+| Trigger | User accesses store management module. |
+| Pre-condition | Authorized user is authenticated. |
+| Post-condition | Store information is stored successfully. |
+| Priority | High |
 
-Description: Track stock levels, lots, and movements per store. Priority: High.
+#### Activities Flow
 
-Functional Requirements:
+Figure 4: Yes/No Activity Flow Diagram - UC04 Create or Update Store
 
-- REQ-INV-001: The system shall maintain inventory per store and variant.
-- REQ-INV-002: The system shall allow adjustments by delta or absolute set (mutually exclusive).
-- REQ-INV-003: The system shall not allow quantity to fall below reserved.
-- REQ-INV-004: The system shall record stock movements for sales, returns, transfers, and adjustments.
-- REQ-INV-005: The system shall track stock lots with lot code and optional expiry date.
-- REQ-INV-006: The system shall support inventory lookup by barcode or variant.
+#### Alternative / Exception Flow
 
-## 3.6 Procurement and Supplier Management
+- No branch: Show permission denied.
 
-Description: Manage suppliers and purchase orders. Priority: Medium.
+- No branch: Highlight missing fields.
 
-Functional Requirements:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- REQ-SUP-001: The system shall allow CRUD operations for suppliers.
-- REQ-PO-001: The system shall allow creation of purchase orders with line items.
-- REQ-PO-002: The system shall support purchase order status transitions (draft, submitted, approved, cancelled, received).
-- REQ-PO-003: The system shall support receiving purchase orders with receipt documents.
-- REQ-PO-004: The system shall update received quantities and total costs on receipt.
-- REQ-PO-005: The system shall update inventory and stock lots when receiving items.
+#### Business Rules
 
-## 3.7 Transfers Between Stores
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR041 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager] THEN SHOW MSG03<br>ELSE load(StoreForm) |
+| (3) | BR042 | Validate Rules:<br>INPUT [storeName], [address], [district], [managerId], [status]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF StoreRepository.existsByNameAndAddress([storeName], [address]) THEN SHOW MSG05<br>IF [managerId] IS NOT NULL AND UserRepository.findById([managerId]) == NULL THEN SHOW MSG05 |
+| (4) | BR043 | Saving Rules:<br>IF [storeId] == NULL THEN<br>    [store.id] = autoGenerate()<br>    [store.createdAt] = currentDateTime<br>    StoreRepository.save([store])<br>ELSE<br>    [store] = StoreRepository.findById([storeId])<br>    update([store], request.body)<br>WRITE AuditLog(action = SAVE_STORE)<br>SHOW MSG01 |
 
-Description: Manage stock transfers between stores. Priority: Medium.
+### UC05: View Store Dashboard
 
-Functional Requirements:
+| Name | View Store Dashboard |
+| --- | --- |
+| Description | View store performance dashboard. |
+| Actor | Admin, District Manager, Store Manager |
+| Trigger | User opens dashboard module. |
+| Pre-condition | User is authenticated and has dashboard permission. |
+| Post-condition | Dashboard information is displayed. |
+| Priority | High |
 
-- REQ-TRF-001: The system shall allow creation of transfer requests with items.
-- REQ-TRF-002: The system shall reserve stock at the source store on transfer creation.
-- REQ-TRF-003: The system shall allow dispatch only for pending transfers.
-- REQ-TRF-004: The system shall allow receiving only for in-transit transfers.
-- REQ-TRF-005: The system shall allow cancel only for pending transfers and release reserved stock.
+#### Activities Flow
 
-## 3.8 POS Sales and Shifts
+Figure 5: Yes/No Activity Flow Diagram - UC05 View Store Dashboard
 
-Description: Support POS checkout with shift and cash handling. Priority: High.
+#### Alternative / Exception Flow
 
-Functional Requirements:
+- No branch: Show permission denied.
 
-- REQ-POS-001: The system shall require an open shift for checkout.
-- REQ-POS-002: The system shall allow opening and closing shifts with cash amounts.
-- REQ-POS-003: The system shall record cash-in and cash-out movements during a shift.
-- REQ-POS-004: The system shall create invoices and invoice items during checkout.
-- REQ-POS-005: The system shall reduce inventory and record stock movements on checkout.
-- REQ-POS-006: The system shall support holding and resuming carts.
+- No branch: Show retrieval error.
 
-## 3.9 Invoices and Orders
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-Description: Manage sales invoices and order history. Priority: High.
+#### Business Rules
 
-Functional Requirements:
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR051 | Access Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager, StoreManager] THEN SHOW MSG03<br>ELSE determineDashboardScope([currentUser.role], [currentUser.storeId]) |
+| (3) | BR052 | Load Data Rules:<br>[kpi] = ReportService.getKPI(scope, dateRange)<br>[inventoryAlerts] = InventoryService.getLowStock(scope)<br>[salesSummary] = TransactionService.getSalesSummary(scope)<br>IF anyDataSourceUnavailable THEN SHOW MSG06 |
+| (4) | BR053 | Display Rules:<br>IF [kpi] IS EMPTY THEN showEmptyDashboardMessage()<br>ELSE renderDashboard([kpi], [inventoryAlerts], [salesSummary])<br>refreshDashboardEvery(CONFIG.dashboardRefreshInterval) |
 
-- REQ-INVH-001: The system shall list invoices with filters and pagination.
-- REQ-INVH-002: The system shall provide invoice details and line items.
-- REQ-INVH-003: The system shall generate receipt data for POS printing.
+### UC06: Create POS Transaction
 
-## 3.10 Returns and Refunds
+| Name | Create POS Transaction |
+| --- | --- |
+| Description | Process customer purchase at POS. |
+| Actor | Cashier |
+| Trigger | Customer initiates checkout. |
+| Pre-condition | Cashier is logged into POS system and shift is active. |
+| Post-condition | Transaction is stored and inventory is updated. |
+| Priority | High |
 
-Description: Process returns and refunds from sales. Priority: High.
+#### Activities Flow
 
-Functional Requirements:
+Figure 6: Yes/No Activity Flow Diagram - UC06 Create POS Transaction
 
-- REQ-RET-001: The system shall validate return quantities against invoice history.
-- REQ-RET-002: The system shall allow partial and full returns.
-- REQ-RET-003: The system shall restock inventory when configured for a return.
-- REQ-RET-004: The system shall record stock movements for returns.
-- REQ-RET-005: The system shall require manager approval for large refunds.
-- REQ-RET-006: The system shall record audit logs for return operations.
+#### Alternative / Exception Flow
 
-## 3.11 Promotions and Discounts
+- No branch: Show product error.
 
-Description: Manage promotions and validate discount codes. Priority: Medium.
+- No branch: Retry payment.
 
-Functional Requirements:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- REQ-PROMO-001: The system shall allow CRUD operations for promotions.
-- REQ-PROMO-002: The system shall validate promotion codes by date range and order total.
-- REQ-PROMO-003: The system shall enforce usage limits and store scope when defined.
+#### Business Rules
 
-## 3.12 Complaints Handling
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR061 | Product Scanning Rules:<br>FOR EACH [barcode] IN scannedItems:<br>    [product] = ProductRepository.findByBarcode([barcode])<br>    IF [product] == NULL THEN SHOW MSG05<br>    IF InventoryService.availableQty([product.id], [storeId]) <= 0 THEN SHOW MSG05<br>    addToCart([product]) |
+| (4) | BR062 | Calculation Rules:<br>[subtotal] = SUM(cart.lineItem.price * cart.lineItem.quantity)<br>[promotionDiscount] = PromotionService.calculate(cart)<br>[loyaltyDiscount] = LoyaltyService.calculateRedemption(member, cart)<br>[total] = subtotal - promotionDiscount - loyaltyDiscount<br>IF [total] < 0 THEN [total] = 0 |
+| (6) | BR063 | Payment and Saving Rules:<br>IF PaymentService.pay([method], [total]) == SUCCESS THEN<br>    [transaction.id] = autoGenerate()<br>    TransactionRepository.save([transaction])<br>    InventoryService.decreaseStock(cart)<br>    ReceiptService.generate([transaction])<br>    SHOW MSG01<br>ELSE SHOW MSG10 |
 
-Description: Record and resolve customer complaints. Priority: Medium.
+### UC07: Apply Loyalty Member
 
-Functional Requirements:
+| Name | Apply Loyalty Member |
+| --- | --- |
+| Description | Link loyalty member account to transaction. |
+| Actor | Cashier |
+| Trigger | Customer provides loyalty information during checkout. |
+| Pre-condition | Loyalty member account exists. |
+| Post-condition | Loyalty account is linked to transaction. |
+| Priority | High |
 
-- REQ-COMP-001: The system shall allow creation of complaints with store and employee details.
-- REQ-COMP-002: The system shall allow status updates and admin notes.
-- REQ-COMP-003: The system shall restrict complaint access to the active store scope.
+#### Activities Flow
 
-## 3.13 Reports and Dashboard
+Figure 7: Yes/No Activity Flow Diagram - UC07 Apply Loyalty Member
 
-Description: Provide operational and revenue reports. Priority: Medium.
+#### Alternative / Exception Flow
 
-Functional Requirements:
+- No branch: Continue without loyalty.
 
-- REQ-REP-001: The system shall provide dashboard metrics by store and date range.
-- REQ-REP-002: The system shall provide revenue trends and top product reports.
-- REQ-REP-003: The system shall default date ranges when none are provided.
+- No branch: Show inactive member.
 
-## 3.14 Audit Logs
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-Description: Record critical actions for traceability. Priority: Medium.
+#### Business Rules
 
-Functional Requirements:
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR071 | Lookup Rules:<br>INPUT [memberCode] OR [phoneNumber]<br>IF input IS NULL THEN continueWithoutLoyalty()<br>[member] = LoyaltyRepository.findByCodeOrPhone(input)<br>IF [member] == NULL THEN SHOW MSG05 |
+| (3) | BR072 | Validate Rules:<br>IF [member.status] != ACTIVE THEN<br>    SHOW MSG05<br>    continueWithoutLoyalty()<br>ELSE display([member.name], [member.tier], [member.points]) |
+| (4) | BR073 | Link Rules:<br>IF validation == SUCCESS THEN<br>    [transaction.loyaltyMemberId] = [member.id]<br>    [transaction.loyaltyTier] = [member.tier]<br>    recalculateEligibleBenefits([transaction]) |
 
-- REQ-AUD-001: The system shall record audit logs for create, update, delete, and refund actions.
-- REQ-AUD-002: The system shall allow admins to search and filter audit logs by date, user, and action.
+### UC08: Calculate Loyalty Points
 
-## 3.15 Settings and Maintenance
+| Name | Calculate Loyalty Points |
+| --- | --- |
+| Description | Calculate points after transaction completion. |
+| Actor | System |
+| Trigger | Transaction is finalized. |
+| Pre-condition | Transaction is completed and linked to loyalty member. |
+| Post-condition | Loyalty balance and history are updated. |
+| Priority | High |
 
-Description: Manage system configuration and maintenance tasks. Priority: Low.
+#### Activities Flow
 
-Functional Requirements:
+Figure 8: Yes/No Activity Flow Diagram - UC08 Calculate Loyalty Points
 
-- REQ-SET-001: The system shall store settings grouped by category.
-- REQ-SET-002: The system shall allow batch updates of settings.
-- REQ-SET-003: The system shall provide default settings initialization.
-- REQ-MNT-001: The system shall provide maintenance actions such as backup and cleanup.
+#### Alternative / Exception Flow
 
-## 3.16 Realtime Notifications
+- No branch: Skip point calculation.
 
-Description: Support store-scoped realtime updates. Priority: Low.
+- No branch: Log and retry later.
 
-Functional Requirements:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- REQ-RTC-001: The system shall allow clients to join and leave store-specific channels.
-- REQ-RTC-002: The system shall broadcast store-scoped events for relevant changes.
+#### Business Rules
 
-## 3.17 Catalog Cache
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR081 | Eligibility Rules:<br>IF [transaction.status] != COMPLETED THEN STOP PROCESS<br>IF [transaction.loyaltyMemberId] == NULL THEN STOP PROCESS<br>IF [transaction.totalAmount] <= 0 THEN STOP PROCESS |
+| (2) | BR082 | Point Calculation Rules:<br>[policy] = LoyaltyPolicyRepository.getActivePolicy()<br>IF [policy] == NULL THEN LOG error AND STOP PROCESS<br>[basePoint] = floor([transaction.totalAmount] / [policy.amountPerPoint])<br>[tierMultiplier] = [policy].getMultiplier([member.tier])<br>[earnedPoint] = [basePoint] * [tierMultiplier] |
+| (3) | BR083 | Update Rules:<br>[member.points] = [member.points] + [earnedPoint]<br>LoyaltyHistoryRepository.save(memberId, transactionId, earnedPoint, EARN)<br>LoyaltyRepository.save([member])<br>SHOW updatedBalance |
 
-Description: Cache catalog responses to reduce database load. Priority: Medium.
+### UC09: Redeem Loyalty Points
 
-Functional Requirements:
+| Name | Redeem Loyalty Points |
+| --- | --- |
+| Description | Redeem points for discount. |
+| Actor | Cashier, Loyalty Member |
+| Trigger | Customer requests redemption. |
+| Pre-condition | Member has sufficient points and transaction is active. |
+| Post-condition | Points are deducted and discount is applied. |
+| Priority | High |
 
-- REQ-CACHE-001: The system shall cache catalog responses using a store and URL key.
-- REQ-CACHE-002: The system shall enforce a TTL between 30 and 60 seconds.
-- REQ-CACHE-003: The system shall invalidate catalog cache when catalog data changes.
+#### Activities Flow
 
-# 4. External Interface Requirements
+Figure 9: Yes/No Activity Flow Diagram - UC09 Redeem Loyalty Points
 
-## 4.1 User Interfaces
+#### Alternative / Exception Flow
 
-- Login page with credential input and error feedback.
-- Role-specific layouts for Admin, Manager/Employee, and Cashier.
-- Admin UI: store setup, users, products, inventory, procurement, transfers, promotions, reports, and settings.
-- Cashier UI: barcode scanning, cart management, payments, shift open/close, and refunds.
+- No branch: Show insufficient points.
 
-## 4.2 Hardware Interfaces
+- No branch: Reject redemption.
 
-- Optional barcode scanner input as keyboard emulation.
-- Optional receipt printer for POS receipts.
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-## 4.3 Software Interfaces
+#### Business Rules
 
-- PostgreSQL database accessed via Prisma ORM.
-- Redis for caching catalog responses.
-- Socket.IO for realtime events.
-- Swagger/OpenAPI for API documentation.
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (2) | BR091 | Balance Rules:<br>[member] = LoyaltyRepository.findById([memberId])<br>IF [member] == NULL OR [member.status] != ACTIVE THEN SHOW MSG05<br>IF [redeemPoint] <= 0 THEN SHOW MSG05<br>IF [member.points] < [redeemPoint] THEN SHOW MSG05 |
+| (4) | BR092 | Redemption Rules:<br>[policy] = LoyaltyPolicyRepository.getActivePolicy()<br>[discount] = [redeemPoint] * [policy.pointValue]<br>IF [discount] > [transaction.totalAmount] THEN<br>    [discount] = [transaction.totalAmount]<br>applyDiscount([transaction], [discount]) |
+| (6) | BR093 | Deduction Rules:<br>IF userConfirmsRedemption == TRUE THEN<br>    [member.points] = [member.points] - [redeemPoint]<br>    LoyaltyHistoryRepository.save(memberId, transactionId, redeemPoint, REDEEM)<br>    updateTransactionTotal([transaction])<br>    SHOW MSG01 |
 
-## 4.4 Communications Interfaces
+### UC10: Upgrade Loyalty Tier
 
-- REST API over HTTP/HTTPS, JSON request/response.
-- WebSocket (Socket.IO) for realtime updates.
-- API base path: /api/v1; health endpoint: /health.
-- Authorization header uses Bearer JWT.
-- Store context is provided via x-store-id or storeId input.
+| Name | Upgrade Loyalty Tier |
+| --- | --- |
+| Description | Upgrade loyalty tier automatically. |
+| Actor | System |
+| Trigger | Spending or point threshold is reached. |
+| Pre-condition | Loyalty member exists and has transaction history. |
+| Post-condition | Member tier is updated if threshold is reached. |
+| Priority | High |
 
-# 5. Non-functional Requirements
+#### Activities Flow
 
-## 5.1 Performance
+Figure 10: Yes/No Activity Flow Diagram - UC10 Upgrade Loyalty Tier
 
-- The system shall return typical read requests within 500 ms for 95 percent of requests under normal load.
-- The system shall complete POS checkout in under 2 seconds for 95 percent of requests.
-- The system shall support paginated lists up to 200 records per page.
-- Catalog caching shall reduce repeated catalog read latency.
+#### Alternative / Exception Flow
 
-## 5.2 Availability and Recovery
+- No branch: Keep current tier.
 
-- The system shall target 99.5 percent monthly API availability.
-- The system shall support database backups and restore procedures.
+- No branch: Log policy issue.
 
-## 5.3 Security
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- Passwords shall be stored using salted hashing (bcrypt).
-- JWT tokens shall expire and be validated on every protected request.
-- Role-based access and store scope checks shall be enforced for protected endpoints.
-- Transport security (HTTPS) shall be required in production deployments.
+#### Business Rules
 
-## 5.4 Reliability and Data Integrity
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR101 | Evaluation Rules:<br>[member] = LoyaltyRepository.findById([memberId])<br>[policy] = LoyaltyTierPolicyRepository.getActivePolicy()<br>IF [member] == NULL OR [policy] == NULL THEN STOP PROCESS |
+| (2) | BR102 | Tier Rules:<br>[spending] = TransactionRepository.sumCompletedAmount([member.id], policy.period)<br>[newTier] = policy.findTierBySpending([spending])<br>IF [newTier.rank] <= [member.currentTier.rank] THEN STOP PROCESS |
+| (3) | BR103 | Update Rules:<br>[member.currentTier] = [newTier]<br>[member.tierUpdatedAt] = currentDateTime<br>LoyaltyTierHistoryRepository.save([member.id], [newTier])<br>NotificationService.notifyTierUpgrade([member]) |
 
-- Inventory updates, receipts, and checkout operations shall be atomic.
-- Duplicate receives shall be prevented by idempotent reference handling.
-- Audit logs shall record critical changes.
+### UC11: Manage Promotion
 
-## 5.5 Maintainability and Testability
+| Name | Manage Promotion |
+| --- | --- |
+| Description | Manage promotional campaigns. |
+| Actor | Admin, District Manager, Store Manager |
+| Trigger | User accesses promotion management module. |
+| Pre-condition | Authorized user is authenticated. |
+| Post-condition | Promotion is stored or updated. |
+| Priority | Medium |
 
-- The codebase shall be modular by domain to isolate changes.
-- API documentation shall be maintained via OpenAPI annotations.
-- Automated tests shall cover critical business flows.
+#### Activities Flow
 
-## 5.6 Scalability
+Figure 11: Yes/No Activity Flow Diagram - UC11 Manage Promotion
 
-- The API layer shall support horizontal scaling behind a load balancer.
-- Redis cache shall be shared across API instances.
+#### Alternative / Exception Flow
 
-## 5.7 Usability
+- No branch: Show permission denied.
 
-- The POS workflow shall minimize clicks and support barcode scanning.
-- Role-specific navigation shall present only permitted modules.
+- No branch: Show conflict warning.
 
-## 5.8 Localization
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
+#### Business Rules
 
-- Store timezone shall be used for reporting and price effective windows.
-- Currency formatting shall be configurable at the UI layer.
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR111 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager, StoreManager] THEN SHOW MSG03<br>ELSE load(PromotionForm) |
+| (3) | BR112 | Validate Rules:<br>INPUT [promotionName], [discountType], [discountValue], [startDate], [endDate], [targetProducts]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [startDate] >= [endDate] THEN SHOW MSG05<br>IF [discountValue] <= 0 THEN SHOW MSG05<br>IF conflictsWithExistingPromotion(INPUT) THEN SHOW MSG05 |
+| (4) | BR113 | Saving Rules:<br>IF [promotionId] == NULL THEN createPromotion(INPUT)<br>ELSE updatePromotion([promotionId], INPUT)<br>PromotionScheduler.activateWhen([startDate])<br>WRITE AuditLog(action = SAVE_PROMOTION)<br>SHOW MSG01 |
 
-# 6. Use Cases
+### UC12: Apply Promotion to Transaction
 
-## 6.1 UC-01 User Login
+| Name | Apply Promotion to Transaction |
+| --- | --- |
+| Description | Automatically apply eligible promotions to POS transaction. |
+| Actor | System |
+| Trigger | POS transaction is processed. |
+| Pre-condition | Active promotions exist. |
+| Post-condition | Applicable promotions are applied. |
+| Priority | Medium |
 
-Actors: Admin, Manager, Employee, Cashier
-Preconditions: User account is active.
-Trigger: User submits login credentials.
-Main Flow:
+#### Activities Flow
 
-1. User enters username/email and password.
-2. System validates credentials.
-3. System returns JWT, user profile, and store scope.
-   Alternate Flows:
-   A1. Invalid credentials -> error message.
-   Postconditions: User is authenticated and can access permitted modules.
+Figure 12: Yes/No Activity Flow Diagram - UC12 Apply Promotion to Transaction
 
-## 6.2 UC-02 Switch Active Store
+#### Alternative / Exception Flow
 
-Actors: Admin, Manager, Employee
-Preconditions: User has access to multiple stores.
-Trigger: User selects another store in UI.
-Main Flow:
+- No branch: Continue no discount.
 
-1. UI sends requests with x-store-id of the selected store.
-2. System validates store scope and sets activeStoreId.
-   Alternate Flows:
-   A1. Store not allowed -> 403 error.
-   Postconditions: Subsequent requests operate under the selected store.
+- No branch: No promotion applied.
 
-## 6.3 UC-03 Maintain Product Catalog
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-Actors: Admin, Manager
-Preconditions: User has catalog permissions.
-Trigger: User creates or edits product data.
-Main Flow:
+#### Business Rules
 
-1. User creates or updates product and variant details.
-2. System validates unique SKU and barcode.
-3. System saves the catalog item.
-   Alternate Flows:
-   A1. Duplicate SKU or barcode -> validation error.
-   Postconditions: Product catalog is updated and available to stores.
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR121 | Retrieve Rules:<br>[promotions] = PromotionRepository.findActive(currentDateTime, storeId)<br>IF [promotions] IS EMPTY THEN return zeroDiscount |
+| (2) | BR122 | Eligibility Rules:<br>FOR EACH [promotion] IN [promotions]:<br>    IF promotion.appliesTo([transaction.items]) == TRUE THEN<br>        addToEligiblePromotionList([promotion])<br>IF eligiblePromotionList IS EMPTY THEN return zeroDiscount |
+| (3) | BR123 | Discount Rules:<br>[bestPromotion] = selectBestBenefit(eligiblePromotionList)<br>[discount] = calculateDiscount([bestPromotion], [transaction])<br>[transaction.discountAmount] = [discount]<br>[transaction.totalAmount] = [transaction.subtotal] - [discount] |
 
-## 6.4 UC-04 Receive Purchase Order
+### UC13: Create Pricing Rule
 
-Actors: Manager, Inventory Staff
-Preconditions: Purchase order exists and is approved.
-Trigger: Goods arrive at the store/warehouse.
-Main Flow:
+| Name | Create Pricing Rule |
+| --- | --- |
+| Description | Create dynamic pricing rules. |
+| Actor | Admin, District Manager |
+| Trigger | User accesses pricing rule module. |
+| Pre-condition | Authorized user is authenticated. |
+| Post-condition | Pricing rule is stored. |
+| Priority | Medium |
 
-1. User creates a receipt and enters received quantities.
-2. System updates purchase order status and received quantities.
-3. System updates inventory and stock lots.
-   Alternate Flows:
-   A1. Receipt reference already used -> idempotency rejection.
-   Postconditions: Inventory reflects received goods and receipt is recorded.
+#### Activities Flow
 
-## 6.5 UC-05 Transfer Stock Between Stores
+Figure 13: Yes/No Activity Flow Diagram - UC13 Create Pricing Rule
 
-Actors: Manager, Inventory Staff
-Preconditions: Source store has available inventory.
-Trigger: User creates a transfer request.
-Main Flow:
+#### Alternative / Exception Flow
 
-1. User creates a transfer with item quantities.
-2. System reserves source stock and sets status to pending.
-3. User dispatches transfer; system marks in transit and reduces quantity.
-4. Receiving store accepts transfer; system increases quantity.
-   Alternate Flows:
-   A1. Cancel pending transfer -> reserved stock released.
-   Postconditions: Stock is moved from source to destination and logged.
+- No branch: Show permission denied.
 
-## 6.6 UC-06 POS Checkout
+- No branch: Show validation error.
 
-Actors: Cashier
-Preconditions: Shift is open; products are in catalog.
-Trigger: Customer proceeds to checkout.
-Main Flow:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-1. Cashier scans items and sets quantities.
-2. System calculates totals and applies promotions.
-3. Cashier confirms payment method and amount.
-4. System creates invoice and reduces inventory.
-   Alternate Flows:
-   A1. No open shift -> checkout rejected.
-   Postconditions: Invoice is recorded and inventory updated.
+#### Business Rules
 
-## 6.7 UC-07 Hold and Resume Cart
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR131 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager] THEN SHOW MSG03<br>ELSE load(PricingRuleForm) |
+| (3) | BR132 | Validate Rules:<br>INPUT [ruleName], [condition], [adjustmentType], [adjustmentValue], [targetProducts], [schedule]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [adjustmentValue] <= 0 THEN SHOW MSG05<br>IF [targetProducts] IS EMPTY THEN SHOW MSG05<br>IF invalidConditionSyntax([condition]) THEN SHOW MSG05 |
+| (4) | BR133 | Saving Rules:<br>[rule.status] = ACTIVE<br>[rule.createdBy] = currentUser.id<br>PricingRuleRepository.save([rule])<br>PricingScheduler.register([rule.schedule])<br>WRITE AuditLog(action = CREATE_PRICING_RULE)<br>SHOW MSG01 |
 
-Actors: Cashier
-Preconditions: Items are in cart.
-Trigger: Cashier places transaction on hold.
-Main Flow:
+### UC14: Execute Dynamic Pricing
 
-1. Cashier marks cart as hold.
-2. System creates a pending invoice and reserves stock.
-3. Cashier resumes the cart later.
-   Alternate Flows:
-   A1. Item stock is insufficient on resume -> prompt for adjustment.
-   Postconditions: Cart is resumed and can proceed to checkout.
+| Name | Execute Dynamic Pricing |
+| --- | --- |
+| Description | Execute dynamic pricing and update prices automatically. |
+| Actor | System |
+| Trigger | Scheduled pricing execution starts. |
+| Pre-condition | Pricing rules are configured. |
+| Post-condition | Product prices are updated. |
+| Priority | Medium |
 
-## 6.8 UC-08 Return and Refund
+#### Activities Flow
 
-Actors: Cashier, Manager
-Preconditions: Original invoice exists.
-Trigger: Customer requests return.
-Main Flow:
+Figure 14: Yes/No Activity Flow Diagram - UC14 Execute Dynamic Pricing
 
-1. Cashier selects invoice and items to return.
-2. System validates remaining return quantity.
-3. System calculates refund and creates return record.
-4. Inventory is restocked if configured.
-   Alternate Flows:
-   A1. Refund exceeds threshold -> manager approval required.
-   Postconditions: Return is recorded and refund processed.
+#### Alternative / Exception Flow
 
-## 6.9 UC-09 Apply Promotion
+- No branch: Skip execution.
 
-Actors: Cashier
-Preconditions: Promotion exists and is active.
-Trigger: Cashier enters promotion code at checkout.
-Main Flow:
+- No branch: Reject and log issue.
 
-1. System validates promotion code and rules.
-2. System applies discount to the order.
-   Alternate Flows:
-   A1. Promotion invalid or expired -> error message.
-   Postconditions: Checkout totals reflect applied discount.
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-## 6.10 UC-10 View Reports
+#### Business Rules
 
-Actors: Admin, Manager, Auditor
-Preconditions: User has report access.
-Trigger: User opens dashboard or report page.
-Main Flow:
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR141 | Execution Rules:<br>[rules] = PricingRuleRepository.findActiveRules(currentDateTime)<br>IF [rules] IS EMPTY THEN STOP PROCESS<br>FOR EACH [rule] IN [rules]:<br>    executeRule([rule]) |
+| (2) | BR142 | Calculation Rules:<br>[demand] = AnalyticsService.getDemand(rule.targetProducts)<br>[inventory] = InventoryService.getStock(rule.targetProducts)<br>[newPrice] = PricingEngine.calculate(rule, demand, inventory)<br>IF [newPrice] < [minimumPrice] OR [newPrice] > [maximumPrice] THEN rejectPrice() |
+| (5) | BR143 | Update Rules:<br>IF priceValidation == SUCCESS THEN<br>    PriceHistoryRepository.save(oldPrice, newPrice, rule.id)<br>    ProductPriceRepository.update([productId], [newPrice])<br>    POSSyncService.publishPriceUpdate([productId], [newPrice])<br>ELSE WRITE AuditLog(action = PRICE_REJECTED) |
 
-1. User selects date range and store.
-2. System aggregates and returns metrics.
-   Alternate Flows:
-   A1. No data -> return empty results.
-   Postconditions: Reports are displayed.
+### UC15: View Price History
 
-## 6.11 UC-11 Handle Complaint
+| Name | View Price History |
+| --- | --- |
+| Description | Review historical pricing data. |
+| Actor | Admin, District Manager, Store Manager |
+| Trigger | User opens price history module. |
+| Pre-condition | Pricing history exists. |
+| Post-condition | Historical pricing information is displayed. |
+| Priority | Medium |
 
-Actors: Manager, Admin
-Preconditions: Complaint is created.
-Trigger: Manager updates complaint status.
-Main Flow:
+#### Activities Flow
 
-1. User reviews complaint details.
-2. User updates status and admin note.
-   Alternate Flows:
-   A1. User not authorized for store -> 403 error.
-   Postconditions: Complaint status is updated.
+Figure 15: Yes/No Activity Flow Diagram - UC15 View Price History
 
-# 7. System Architecture
+#### Alternative / Exception Flow
 
-The system uses a layered architecture:
+- No branch: Show permission denied.
 
-- Presentation layer: React frontend (role-specific layouts and routing).
-- API layer: Express REST API with middleware for auth, store scope, and error handling.
-- Data layer: Prisma ORM with PostgreSQL database.
-- Cache layer: Redis for catalog caching.
-- Realtime layer: Socket.IO for store-scoped events.
-- Background processing: Scheduler for periodic maintenance tasks.
+- No branch: Show empty result.
 
-Key data flow:
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-1. UI sends REST requests with JWT and x-store-id.
-2. API validates auth and scope, applies business rules, and reads/writes via Prisma.
-3. Catalog responses may be cached in Redis; invalidation occurs on catalog updates.
-4. Realtime events are emitted to store rooms as needed.
+#### Business Rules
 
-# 8. Data Model
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR151 | Search Rules:<br>INPUT [productId], [fromDate], [toDate]<br>IF [productId] IS NULL THEN SHOW MSG02<br>IF [fromDate] > [toDate] THEN SHOW MSG05 |
+| (2) | BR152 | Retrieve Rules:<br>[history] = PriceHistoryRepository.findByProductAndDateRange([productId], [fromDate], [toDate])<br>IF [history] IS EMPTY THEN showEmptyResult() |
+| (3) | BR153 | Display Rules:<br>SORT [history] BY changedAt DESC<br>DISPLAY [oldPrice], [newPrice], [changedBy], [reason], [changedAt] |
 
-The database schema is defined in [backend/prisma/schema.prisma](backend/prisma/schema.prisma). Key entities include:
+### UC16: Close Shift
 
-Master data:
+| Name | Close Shift |
+| --- | --- |
+| Description | Reconcile cashier shift. |
+| Actor | Cashier, Store Manager |
+| Trigger | Cashier initiates shift closing. |
+| Pre-condition | Cashier shift is active. |
+| Post-condition | Shift report is generated. |
+| Priority | Medium |
 
-- stores: store profile and status.
-- roles, users, user_stores: RBAC and store membership.
-- categories, brands, products, product_variants, variant_prices: catalog and pricing.
-- promotions: discount rules and validity windows.
+#### Activities Flow
 
-Operational data:
+Figure 16: Yes/No Activity Flow Diagram - UC16 Close Shift
 
-- inventories: per store stock levels and reserved quantities.
-- stock_lots: lot tracking with optional expiry.
-- stock_movements: immutable movement ledger.
-- purchase_orders, purchase_items, purchase_order_receipts, purchase_order_receipt_items: procurement lifecycle.
-- store_transfers, store_transfer_items: inter-store transfer lifecycle.
-- invoices, invoice_items: POS sales history.
-- returns, return_items: refund workflow.
-- pos_shifts, cash_movements: shift and cash tracking.
-- complaints: complaint records and status tracking.
-- audit_logs: system audit events.
-- customers, loyalty_points: customer and loyalty tracking.
+#### Alternative / Exception Flow
 
-Relationship summary:
+- No branch: Show no active shift.
 
-- A store has many inventories, invoices, purchase orders, receipts, transfers, shifts, and movements.
-- A product has many variants; variants appear in inventories, invoice items, return items, transfers, and lots.
-- A user has a role and may be assigned to multiple stores via user_stores.
-- Purchase orders have items and receipts; receipts have receipt items and update inventory.
-- Invoices have invoice items; returns reference invoices and contain return items.
+- No branch: Manager reviews variance.
 
-# 9. Assumptions and Constraints
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
 
-- The system runs on Node.js 20+ with PostgreSQL and Redis available.
-- Environment variables for database and JWT configuration are provided at startup.
-- API clients include Authorization: Bearer tokens for protected endpoints.
-- Store scope is enforced with x-store-id or storeId input for non-admin roles.
-- Pricing and reporting are based on server time and configured store timezones.
-- Single-currency operation is assumed unless configured otherwise at the UI layer.
+#### Business Rules
 
-<!-- [MermaidChart: 7c203715-4dbb-46bc-9747-3c3fc01ecc3f] -->
-<!-- [MermaidChart: 4bb22ef4-f814-4195-b2f1-8aa196c5e57b] -->
-<!-- [MermaidChart: 12223b9c-6c39-4457-b0ad-a9de260008d4] -->
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR161 | Shift Rules:<br>[shift] = ShiftRepository.findActiveShift([cashierId])<br>IF [shift] == NULL THEN SHOW MSG05<br>ELSE loadShiftClosingScreen([shift]) |
+| (2) | BR162 | Reconciliation Rules:<br>[systemTotal] = TransactionRepository.sumByShift([shift.id])<br>[cashInput] = request.body.cashBalance<br>[variance] = [cashInput] - [systemTotal.cashAmount]<br>IF abs([variance]) > CONFIG.allowedVariance THEN requireManagerReview() |
+| (5) | BR163 | Closing Rules:<br>IF varianceApproved OR varianceWithinLimit THEN<br>    [shift.status] = CLOSED<br>    [shift.closedAt] = currentDateTime<br>    ShiftReportRepository.save([shift], [systemTotal], [variance])<br>    DashboardService.updateDailyPerformance()<br>    SHOW MSG01 |
+
+### UC17: View Transaction History
+
+| Name | View Transaction History |
+| --- | --- |
+| Description | Search and review transactions. |
+| Actor | Store Manager, Cashier, Loyalty Member |
+| Trigger | User accesses transaction history module. |
+| Pre-condition | Transaction records exist. |
+| Post-condition | Transaction history is displayed. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 17: Yes/No Activity Flow Diagram - UC17 View Transaction History
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show empty result.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR171 | Search Rules:<br>INPUT [storeId], [cashierId], [memberId], [dateRange], [status]<br>[currentUser] = getUserFromJWT()<br>[scope] = determineTransactionScope([currentUser]) |
+| (2) | BR172 | Retrieve Rules:<br>[transactions] = TransactionRepository.search(INPUT, scope)<br>IF [transactions] IS EMPTY THEN showEmptyResult()<br>ELSE paginate([transactions], pageSize = 20) |
+| (3) | BR173 | Display Rules:<br>FOR EACH [transaction] IN [transactions]:<br>    DISPLAY [transactionNo], [date], [cashier], [store], [total], [paymentStatus]<br>IF userSelectsDetail THEN loadTransactionDetail([transaction.id]) |
+
+### UC18: Manage Product Catalog
+
+| Name | Manage Product Catalog |
+| --- | --- |
+| Description | Manage products, categories, and SKU data. |
+| Actor | Admin, Store Manager, Inventory Staff |
+| Trigger | User accesses product management module. |
+| Pre-condition | Authorized user is authenticated. |
+| Post-condition | Product catalog is updated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 18: Yes/No Activity Flow Diagram - UC18 Manage Product Catalog
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show validation error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR181 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, StoreManager, InventoryStaff] THEN SHOW MSG03<br>ELSE load(ProductCatalogScreen) |
+| (3) | BR182 | Validate Rules:<br>INPUT [sku], [productName], [categoryId], [brandId], [basePrice], [barcode]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF ProductRepository.existsBySKU([sku]) THEN SHOW MSG05<br>IF [basePrice] < 0 THEN SHOW MSG05<br>IF CategoryRepository.findById([categoryId]) == NULL THEN SHOW MSG05 |
+| (4) | BR183 | Saving Rules:<br>IF [productId] == NULL THEN createProduct(INPUT)<br>ELSE updateProduct([productId], INPUT)<br>WRITE AuditLog(action = SAVE_PRODUCT)<br>SHOW MSG01 |
+
+### UC19: Update Inventory Stock Level
+
+| Name | Update Inventory Stock Level |
+| --- | --- |
+| Description | Update inventory quantity. |
+| Actor | Inventory Staff |
+| Trigger | Inventory adjustment occurs. |
+| Pre-condition | Product inventory exists. |
+| Post-condition | Inventory quantity is updated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 19: Yes/No Activity Flow Diagram - UC19 Update Inventory Stock Level
+
+#### Alternative / Exception Flow
+
+- No branch: Show not found.
+
+- No branch: Show invalid quantity.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR191 | Inventory Lookup Rules:<br>[inventory] = InventoryRepository.findByStoreAndProduct([storeId], [productId])<br>IF [inventory] == NULL THEN SHOW MSG05<br>ELSE loadAdjustmentForm([inventory]) |
+| (3) | BR192 | Validate Rules:<br>INPUT [adjustmentType], [quantity], [reason]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [quantity] < 0 THEN SHOW MSG05<br>IF [adjustmentType] == DECREASE AND [inventory.qty] < [quantity] THEN SHOW MSG05 |
+| (4) | BR193 | Update Rules:<br>IF [adjustmentType] == INCREASE THEN [inventory.qty] += [quantity]<br>ELSE IF [adjustmentType] == DECREASE THEN [inventory.qty] -= [quantity]<br>InventoryMovementRepository.save([inventory], [quantity], [reason])<br>InventoryRepository.save([inventory])<br>SHOW MSG01 |
+
+### UC20: Create Inter-store Transfer
+
+| Name | Create Inter-store Transfer |
+| --- | --- |
+| Description | Create inventory transfer request. |
+| Actor | Inventory Staff |
+| Trigger | Replenishment requirement occurs. |
+| Pre-condition | Source inventory is available. |
+| Post-condition | Transfer request is created. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 20: Yes/No Activity Flow Diagram - UC20 Create Inter-store Transfer
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Highlight missing fields.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR201 | Transfer Request Rules:<br>INPUT [sourceStoreId], [destinationStoreId], [items]<br>IF [sourceStoreId] == [destinationStoreId] THEN SHOW MSG05<br>IF [items] IS EMPTY THEN SHOW MSG02 |
+| (4) | BR202 | Stock Validation Rules:<br>FOR EACH [item] IN [items]:<br>    [available] = InventoryService.availableQty(sourceStoreId, item.productId)<br>    IF [available] < [item.quantity] THEN SHOW MSG05 AND STOP PROCESS |
+| (5) | BR203 | Saving Rules:<br>[transfer.id] = autoGenerate()<br>[transfer.status] = PENDING_APPROVAL<br>[transfer.createdBy] = currentUser.id<br>TransferRepository.save([transfer])<br>NotificationService.notifyApprover([transfer])<br>SHOW MSG01 |
+
+### UC21: Approve Transfer
+
+| Name | Approve Transfer |
+| --- | --- |
+| Description | Approve or reject transfer requests. |
+| Actor | Store Manager, District Manager |
+| Trigger | Manager reviews transfer request. |
+| Pre-condition | Transfer request exists. |
+| Post-condition | Transfer status is updated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 21: Yes/No Activity Flow Diagram - UC21 Approve Transfer
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Mark rejected.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR211 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [StoreManager, DistrictManager] THEN SHOW MSG03<br>ELSE loadTransferDetail([transferId]) |
+| (3) | BR212 | Decision Rules:<br>[transfer] = TransferRepository.findById([transferId])<br>IF [transfer] == NULL THEN SHOW MSG05<br>IF [transfer.status] != PENDING_APPROVAL THEN SHOW MSG05<br>IF decision NOT IN [APPROVE, REJECT] THEN SHOW MSG05 |
+| (4) | BR213 | Update Rules:<br>IF decision == APPROVE THEN<br>    [transfer.status] = APPROVED<br>    InventoryService.moveStock(transfer.items)<br>ELSE<br>    [transfer.status] = REJECTED<br>TransferRepository.save([transfer])<br>NotificationService.notifyRequester([transfer])<br>SHOW MSG01 |
+
+### UC22: Generate Store Report
+
+| Name | Generate Store Report |
+| --- | --- |
+| Description | Generate store-level operational report. |
+| Actor | Store Manager |
+| Trigger | Manager requests store report. |
+| Pre-condition | Store data exists. |
+| Post-condition | Store report is generated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 22: Yes/No Activity Flow Diagram - UC22 Generate Store Report
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show generation error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR221 | Input Rules:<br>INPUT [storeId], [reportType], [fromDate], [toDate]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [fromDate] > [toDate] THEN SHOW MSG05 |
+| (2) | BR222 | Data Rules:<br>[data] = ReportService.collectStoreData([storeId], [reportType], [dateRange])<br>IF [data] IS EMPTY THEN showEmptyReport()<br>ELSE generateReportModel([data]) |
+| (3) | BR223 | Output Rules:<br>[report] = ReportRenderer.render([reportModel])<br>ReportRepository.save([report])<br>DISPLAY [report.summary]<br>SHOW MSG01 |
+
+### UC23: Generate Chain Report
+
+| Name | Generate Chain Report |
+| --- | --- |
+| Description | Generate consolidated multi-store report. |
+| Actor | Admin, District Manager |
+| Trigger | User requests consolidated report. |
+| Pre-condition | Multi-store data exists. |
+| Post-condition | Chain report is generated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 23: Yes/No Activity Flow Diagram - UC23 Generate Chain Report
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show generation error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR231 | Scope Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager] THEN SHOW MSG03<br>[scope] = getChainScope([currentUser]) |
+| (2) | BR232 | Aggregation Rules:<br>FOR EACH [store] IN [scope.stores]:<br>    [storeData] = ReportService.collectStoreData([store], [dateRange])<br>    append([storeData], [chainData])<br>IF synchronizationIncomplete THEN showWarningMessage() |
+| (4) | BR233 | Report Rules:<br>[report] = ReportService.generateConsolidatedReport([chainData])<br>ReportRepository.save([report])<br>DISPLAY [report.analyticsSummary]<br>SHOW MSG01 |
+
+### UC24: View Real-time Analytics
+
+| Name | View Real-time Analytics |
+| --- | --- |
+| Description | Monitor live analytics dashboard. |
+| Actor | Admin, District Manager |
+| Trigger | User opens analytics dashboard. |
+| Pre-condition | Analytics service is active. |
+| Post-condition | Real-time analytics are displayed. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 24: Yes/No Activity Flow Diagram - UC24 View Real-time Analytics
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show retrieval error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR241 | Access Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, DistrictManager] THEN SHOW MSG03<br>ELSE openAnalyticsDashboard() |
+| (2) | BR242 | Streaming Rules:<br>metrics = AnalyticsService.subscribe(scope)<br>IF AnalyticsService.status != AVAILABLE THEN SHOW MSG06<br>ELSE updateDashboard(metrics) |
+| (3) | BR243 | Refresh Rules:<br>WHILE dashboardIsOpen:<br>    RECEIVE metricsEvent<br>    updateChart(metricsEvent)<br>    IF event.type == ALERT THEN highlightAlert(event) |
+
+### UC25: Set Low-stock Alert Threshold
+
+| Name | Set Low-stock Alert Threshold |
+| --- | --- |
+| Description | Configure low-stock threshold. |
+| Actor | Admin, Store Manager |
+| Trigger | User configures alert settings. |
+| Pre-condition | Product inventory exists. |
+| Post-condition | Threshold is stored. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 25: Yes/No Activity Flow Diagram - UC25 Set Low-stock Alert Threshold
+
+#### Alternative / Exception Flow
+
+- No branch: Show permission denied.
+
+- No branch: Show validation error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR251 | Permission Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, StoreManager] THEN SHOW MSG03<br>ELSE loadThresholdConfiguration() |
+| (2) | BR252 | Validate Rules:<br>INPUT [productId], [storeId], [thresholdQty]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [thresholdQty] < 0 THEN SHOW MSG05<br>IF ProductRepository.findById([productId]) == NULL THEN SHOW MSG05 |
+| (4) | BR253 | Saving Rules:<br>[alertRule] = AlertRuleRepository.findOrCreate([productId], [storeId])<br>[alertRule.thresholdQty] = [thresholdQty]<br>[alertRule.status] = ACTIVE<br>AlertRuleRepository.save([alertRule])<br>SHOW MSG01 |
+
+### UC26: Receive Low-stock Notification
+
+| Name | Receive Low-stock Notification |
+| --- | --- |
+| Description | Receive low-stock notification. |
+| Actor | Inventory Staff, System |
+| Trigger | Inventory falls below threshold. |
+| Pre-condition | Threshold is configured. |
+| Post-condition | Notification is delivered. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 26: Yes/No Activity Flow Diagram - UC26 Receive Low-stock Notification
+
+#### Alternative / Exception Flow
+
+- No branch: Continue monitoring.
+
+- No branch: Retry and log.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR261 | Monitoring Rules:<br>FOR EACH [inventory] IN InventoryRepository.findAllActive():<br>    [threshold] = AlertRuleRepository.findByInventory([inventory])<br>    IF [inventory.qty] <= [threshold.qty] THEN generateLowStockEvent([inventory]) |
+| (3) | BR262 | Notification Rules:<br>[event] = LowStockEvent<br>[receivers] = UserRepository.findInventoryStaffByStore(event.storeId)<br>FOR EACH [receiver] IN [receivers]:<br>    NotificationService.send(receiver, event.message) |
+| (5) | BR263 | Retry Rules:<br>IF NotificationService.sendStatus == FAILED THEN<br>    retry(max = 3)<br>    IF stillFailed THEN WRITE AuditLog(action = NOTIFICATION_FAILED) |
+
+### UC27: Manage Complaints
+
+| Name | Manage Complaints |
+| --- | --- |
+| Description | Submit and handle complaints. |
+| Actor | Admin, Store Manager, Loyalty Member |
+| Trigger | Customer or staff creates complaint. |
+| Pre-condition | Complaint information is submitted. |
+| Post-condition | Complaint status is updated. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 27: Yes/No Activity Flow Diagram - UC27 Manage Complaints
+
+#### Alternative / Exception Flow
+
+- No branch: Request details.
+
+- No branch: Keep pending.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR271 | Create Complaint Rules:<br>INPUT [subject], [description], [proof], [createdBy]<br>IF [subject] IS NULL OR [description] IS NULL THEN SHOW MSG02<br>[complaint.status] = OPEN<br>ComplaintRepository.save([complaint]) |
+| (3) | BR272 | Handling Rules:<br>[currentUser] = getUserFromJWT()<br>IF [currentUser.role] NOT IN [Admin, StoreManager] THEN SHOW MSG03<br>[complaint] = ComplaintRepository.findById([complaintId])<br>IF [complaint] == NULL THEN SHOW MSG05 |
+| (4) | BR273 | Resolution Rules:<br>INPUT [resolutionNote], [newStatus]<br>IF [newStatus] NOT IN [IN_PROGRESS, RESOLVED, REJECTED] THEN SHOW MSG05<br>[complaint.status] = [newStatus]<br>[complaint.resolutionNote] = [resolutionNote]<br>ComplaintRepository.save([complaint])<br>NotificationService.notifyComplaintOwner([complaint]) |
+
+### UC28: Export Report
+
+| Name | Export Report |
+| --- | --- |
+| Description | Export generated reports. |
+| Actor | Admin, District Manager, Store Manager |
+| Trigger | User selects export function. |
+| Pre-condition | Report has been generated. |
+| Post-condition | Report file is exported. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 28: Yes/No Activity Flow Diagram - UC28 Export Report
+
+#### Alternative / Exception Flow
+
+- No branch: Show missing report.
+
+- No branch: Show export error.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR281 | Format Rules:<br>INPUT [reportId], [format]<br>IF [format] NOT IN [PDF, XLSX, CSV] THEN SHOW MSG05<br>[report] = ReportRepository.findById([reportId])<br>IF [report] == NULL THEN SHOW MSG05 |
+| (2) | BR282 | Export Rules:<br>SWITCH ([format])<br>    CASE PDF: [file] = PdfExporter.export([report])<br>    CASE XLSX: [file] = ExcelExporter.export([report])<br>    CASE CSV: [file] = CsvExporter.export([report]) |
+| (3) | BR283 | Download Rules:<br>IF [file] == NULL THEN SHOW MSG06<br>ELSE<br>    [downloadUrl] = FileStorage.saveAndGenerateUrl([file])<br>    DISPLAY [downloadUrl]<br>    SHOW MSG08 |
+
+### UC29: A/B Test Pricing
+
+| Name | A/B Test Pricing |
+| --- | --- |
+| Description | Compare pricing strategies. |
+| Actor | Admin, District Manager |
+| Trigger | User initiates pricing experiment. |
+| Pre-condition | Pricing strategies are configured. |
+| Post-condition | Experiment result is recorded. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 29: Yes/No Activity Flow Diagram - UC29 A/B Test Pricing
+
+#### Alternative / Exception Flow
+
+- No branch: Show config error.
+
+- No branch: Show incomplete data.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR291 | Experiment Setup Rules:<br>INPUT [productList], [variantA], [variantB], [startDate], [endDate]<br>IF requiredFieldsAreBlank(INPUT) THEN SHOW MSG02<br>IF [startDate] >= [endDate] THEN SHOW MSG05<br>IF [variantA.price] == [variantB.price] THEN SHOW MSG05 |
+| (3) | BR292 | Execution Rules:<br>FOR EACH [product] IN [productList]:<br>    assignTrafficSplit(product, variantA, variantB)<br>    PricingExperimentRepository.saveAssignment(product)<br>collectSalesDataUntil([endDate]) |
+| (5) | BR293 | Analysis Rules:<br>[result] = AnalyticsService.compareRevenue(variantA, variantB)<br>IF [result.sampleSize] < CONFIG.minSampleSize THEN showIncompleteAnalysis()<br>ELSE generateExperimentReport([result]) |
+
+### UC30: Rollback Price Change
+
+| Name | Rollback Price Change |
+| --- | --- |
+| Description | Restore previous product price. |
+| Actor | Admin |
+| Trigger | Admin initiates rollback operation. |
+| Pre-condition | Historical pricing data exists. |
+| Post-condition | Previous price is restored. |
+| Priority | Medium |
+
+#### Activities Flow
+
+Figure 30: Yes/No Activity Flow Diagram - UC30 Rollback Price Change
+
+#### Alternative / Exception Flow
+
+- No branch: Show rollback error.
+
+- No branch: Cancel operation.
+
+- When an exception occurs, the system displays the appropriate message and allows the actor to correct input, retry, or cancel the operation.
+
+#### Business Rules
+
+| Activity | BR Code | Description |
+| --- | --- | --- |
+| (1) | BR301 | History Rules:<br>INPUT [productId], [priceVersionId]<br>[history] = PriceHistoryRepository.findById([priceVersionId])<br>IF [history] == NULL THEN SHOW MSG05<br>IF [history.productId] != [productId] THEN SHOW MSG05 |
+| (3) | BR302 | Confirm Rules:<br>SHOW confirmRollbackMessage([history.oldPrice])<br>IF userClicksCancel THEN STOP PROCESS<br>ELSE continueRollback() |
+| (4) | BR303 | Rollback Rules:<br>ProductPriceRepository.update([productId], [history.oldPrice])<br>PriceHistoryRepository.save(currentPrice, history.oldPrice, reason = ROLLBACK)<br>POSSyncService.publishPriceUpdate([productId], [history.oldPrice])<br>WRITE AuditLog(action = ROLLBACK_PRICE)<br>SHOW MSG01 |
+
+## 2.2 List Description
+
+List descriptions shall define data fields, filters, sorting options, pagination rules, and available actions for each major list screen, including users, stores, products, inventory, transactions, promotions, pricing rules, transfers, reports, and complaints.
+
+## 2.3 View Description
+
+View descriptions shall define screen layout, input fields, display fields, validation behavior, buttons, navigation, and error messages for each major module.
+
+# 3. Non-functional Requirements
+
+## 3.1 User Access and Security
+
+- The system shall support JWT authentication.
+
+- The system shall support role-based access control (RBAC).
+
+- Passwords must be encrypted before storage.
+
+- Sensitive operations such as price changes, inventory adjustments, transfers, and user permission changes must be recorded in audit logs.
+
+- Sessions shall expire automatically after inactivity.
+
+- The system shall support HTTPS communication.
+
+- APIs shall support rate limiting and monitoring for failed login attempts.
+
+## 3.2 Performance Requirements
+
+- The system shall support at least 5,000 concurrent users.
+
+- POS transaction processing shall complete within 2 seconds under normal load.
+
+- Dashboard loading time shall not exceed 3 seconds for standard reports.
+
+- Dynamic pricing calculation latency shall be below 100 milliseconds per item batch where feasible.
+
+- Inventory synchronization shall occur in near real-time.
+
+## 3.3 Availability and Reliability
+
+- The platform shall target 99.99% uptime for production operation.
+
+- Database replication and failover mechanisms shall be implemented.
+
+- The system shall support automated backup and disaster recovery.
+
+- Monitoring systems shall detect failures and notify administrators automatically.
+
+## 3.4 Implementation Requirements
+
+- Frontend shall use ReactJS.
+
+- Backend shall use Node.js and ExpressJS.
+
+- Database shall use PostgreSQL.
+
+- Redis shall be used for caching.
+
+- APIs shall follow RESTful architecture.
+
+- Real-time communication shall use WebSocket technology where required.
+
+- Docker shall be used for deployment.
+
+# 4. Appendixes
+
+## 4.1 Glossary
+
+| Term | Definition |
+| --- | --- |
+| SRS | Software Requirements Specification |
+| BRD | Business Requirements Document |
+| UC | Use Case |
+| BR | Business Rule |
+| POS | Point-of-Sale |
+| SKU | Stock Keeping Unit |
+| JWT | JSON Web Token |
+| RBAC | Role-Based Access Control |
+| Dynamic Pricing | Automatic product price adjustment based on rules and operational data |
+| Inventory Transfer | Movement of inventory between stores |
+| Audit Log | Record of important system or user activities |
+
+## 4.2 Messages
+
+| Message Code | Message Content | Button |
+| --- | --- | --- |
+| MSG01 | Operation completed successfully. |  |
+| MSG02 | You need to fill in all required fields. |  |
+| MSG03 | You do not have permission to perform this action. |  |
+| MSG04 | Invalid username or password. |  |
+| MSG05 | Data validation failed. Please check your input. |  |
+| MSG06 | System service is temporarily unavailable. Please try again later. |  |
+| MSG07 | Are you certain with this decision? | OK/Cancel |
+| MSG08 | Report exported successfully. |  |
+| MSG09 | Inventory stock is below threshold. |  |
+| MSG10 | Payment failed. Please retry another payment method. |  |
+
+## 4.3 Issues List
+
+1. Finalize payment gateway integration.
+
+1. Confirm reporting BI tool.
+
+1. Define disaster recovery policy.
+
+1. Validate production infrastructure sizing.
+
+1. Confirm real-time synchronization mechanism.
