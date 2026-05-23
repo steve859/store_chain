@@ -2,12 +2,28 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 import { invalidateCatalogCache } from '../../lib/cache/catalog';
 
 const router = Router();
 
 router.use(authenticateToken);
+
+const inventoryReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
+const inventoryLookupRoles = [
+  'ADMIN',
+  'DISTRICT_MANAGER',
+  'STORE_MANAGER',
+  'INVENTORY_STAFF',
+  'CASHIER',
+  'admin',
+  'manager',
+  'store_manager',
+  'inventory_staff',
+  'cashier',
+];
+const stockWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -22,7 +38,7 @@ const toDecimal = (value: unknown): Prisma.Decimal => {
 
 // Adjustment history (stock_movements of type 'adjustment')
 // GET /api/v1/inventory/adjustments?q=milk&take=50&skip=0
-router.get('/adjustments', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/adjustments', requireActiveStoreUnlessAdmin, authorizeRoles(inventoryReadRoles), async (req, res, next) => {
   try {
     const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
     const isAdmin = role.toLowerCase() === 'admin';
@@ -109,7 +125,7 @@ router.get('/adjustments', requireActiveStoreUnlessAdmin, async (req, res, next)
 });
 
 // Basic inventory list (by store)
-router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/', requireActiveStoreUnlessAdmin, authorizeRoles(inventoryReadRoles), async (req, res, next) => {
   try {
     const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
     const isAdmin = role.toLowerCase() === 'admin';
@@ -137,7 +153,7 @@ router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
 });
 
 // Lookup inventory for active store + variant
-router.get('/variants/:variantId', requireActiveStore, async (req, res, next) => {
+router.get('/variants/:variantId', requireActiveStore, authorizeRoles(inventoryLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const variantId = Number(req.params.variantId);
@@ -161,7 +177,7 @@ router.get('/variants/:variantId', requireActiveStore, async (req, res, next) =>
 });
 
 // Lookup inventory for a store + variant (legacy route)
-router.get('/stores/:storeId/variants/:variantId', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/stores/:storeId/variants/:variantId', requireActiveStoreUnlessAdmin, authorizeRoles(inventoryLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.storeId);
     const variantId = Number(req.params.variantId);
@@ -192,7 +208,7 @@ router.get('/stores/:storeId/variants/:variantId', requireActiveStoreUnlessAdmin
 });
 
 // Lookup by barcode (common cashier/manager workflow)
-router.get('/lookup', requireActiveStore, async (req, res, next) => {
+router.get('/lookup', requireActiveStore, authorizeRoles(inventoryLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const barcode = String(req.query.barcode ?? '').trim();
@@ -220,7 +236,7 @@ router.get('/lookup', requireActiveStore, async (req, res, next) => {
 });
 
 // Lookup by barcode for a store (legacy route)
-router.get('/stores/:storeId/lookup', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/stores/:storeId/lookup', requireActiveStoreUnlessAdmin, authorizeRoles(inventoryLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.storeId);
     const barcode = String(req.query.barcode ?? '').trim();
@@ -268,7 +284,7 @@ router.get('/stores/:storeId/lookup', requireActiveStoreUnlessAdmin, async (req,
  *   reason?: string
  * }
  */
-router.post('/receive', async (req, res, next) => {
+router.post('/receive', requireActiveStoreUnlessAdmin, authorizeRoles(stockWriteRoles), async (req, res, next) => {
   try {
     const { storeId, variantId, quantity, unitCost, createdBy, lotCode, expiryDate, referenceId, reason } = req.body ?? {};
 
@@ -373,7 +389,7 @@ router.post('/receive', async (req, res, next) => {
  *   referenceId?: string
  * }
  */
-router.post('/adjust', async (req, res, next) => {
+router.post('/adjust', requireActiveStoreUnlessAdmin, authorizeRoles(stockWriteRoles), async (req, res, next) => {
   try {
     const { storeId, variantId, delta, setTo, createdBy, reason, referenceId, note } = req.body ?? {};
 
