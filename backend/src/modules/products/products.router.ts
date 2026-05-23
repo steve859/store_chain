@@ -11,6 +11,11 @@ const router = Router();
 
 router.use(authenticateToken);
 
+const productReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
+const catalogReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'CASHIER', 'admin', 'manager', 'store_manager', 'inventory_staff', 'cashier'];
+const productWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
+const variantPriceRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
     throw new Error('Invalid decimal value');
@@ -37,7 +42,7 @@ const parseDateOptional = (value: unknown): Date | null => {
  * UC-M1: Product list
  * GET /api/v1/products?take=50&skip=0&q=milk
  */
-router.get('/', async (req, res, next) => {
+router.get('/', authorizeRoles(productReadRoles), async (req, res, next) => {
   try {
     const q = String(req.query.q ?? '').trim();
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
@@ -75,7 +80,7 @@ router.get('/', async (req, res, next) => {
  * UC-M1: Store catalog view (variants + product + store inventory)
  * GET /api/v1/products/catalog?q=milk&barcode=...&take=50&skip=0
  */
-router.get('/catalog', requireActiveStore, cacheCatalogResponse(), async (req, res, next) => {
+router.get('/catalog', requireActiveStore, authorizeRoles(catalogReadRoles), cacheCatalogResponse(), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const q = String(req.query.q ?? '').trim();
@@ -151,7 +156,7 @@ router.get('/catalog', requireActiveStore, cacheCatalogResponse(), async (req, r
  * UC-M3: Variant price history for active store
  * GET /api/v1/products/variant-prices?variantId=123&take=50&skip=0
  */
-router.get('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+router.get('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const variantId = req.query.variantId !== undefined ? Number(req.query.variantId) : null;
@@ -184,7 +189,7 @@ router.get('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'mana
  * POST /api/v1/products/variant-prices
  * Body: { variantId: number, price: number, startAt?: ISOString }
  */
-router.post('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+router.post('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const userId = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -250,7 +255,7 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(['admin', 'man
  * POST /api/v1/products/variant-prices/close
  * Body: { variantId: number, endAt?: ISOString }
  */
-router.post('/variant-prices/close', requireActiveStore, authorizeRoles(['admin', 'manager', 'store_manager']), async (req, res, next) => {
+router.post('/variant-prices/close', requireActiveStore, authorizeRoles(variantPriceRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const userId = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -299,7 +304,7 @@ router.post('/variant-prices/close', requireActiveStore, authorizeRoles(['admin'
  * UC-M1: Product details (includes variants)
  * GET /api/v1/products/:id
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authorizeRoles(productReadRoles), async (req, res, next) => {
   try {
     const productId = Number(req.params.id);
     if (!Number.isFinite(productId)) {
@@ -336,7 +341,7 @@ router.get('/:id', async (req, res, next) => {
  *   variants?: Array<{ variantCode?: string, name?: string, barcode?: string, price?: number, costPrice?: number, minStock?: number, isActive?: boolean }>
  * }
  */
-router.post('/', async (req, res, next) => {
+router.post('/', authorizeRoles(productWriteRoles), async (req, res, next) => {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const sku = body.sku !== undefined && body.sku !== null && String(body.sku).trim() !== '' ? String(body.sku) : null;
@@ -397,7 +402,7 @@ router.post('/', async (req, res, next) => {
  * UC-M1: Update product
  * PUT /api/v1/products/:id
  */
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', authorizeRoles(productWriteRoles), async (req, res, next) => {
   try {
     const productId = Number(req.params.id);
     if (!Number.isFinite(productId)) {
@@ -430,7 +435,7 @@ router.put('/:id', async (req, res, next) => {
  * UC-M1: Create variant under a product
  * POST /api/v1/products/:id/variants
  */
-router.post('/:id/variants', async (req, res, next) => {
+router.post('/:id/variants', authorizeRoles(productWriteRoles), async (req, res, next) => {
   try {
     const productId = Number(req.params.id);
     if (!Number.isFinite(productId)) {
@@ -464,7 +469,7 @@ router.post('/:id/variants', async (req, res, next) => {
  * UC-M1: Update variant
  * PUT /api/v1/products/variants/:variantId
  */
-router.put('/variants/:variantId', async (req, res, next) => {
+router.put('/variants/:variantId', authorizeRoles(productWriteRoles), async (req, res, next) => {
   try {
     const variantId = Number(req.params.variantId);
     if (!Number.isFinite(variantId)) {
