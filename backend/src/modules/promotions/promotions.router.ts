@@ -1,10 +1,18 @@
 import { Router } from 'express';
 import { PromotionService } from './promotions.service';
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = Router();
 
+const readPromotionRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'CASHIER'];
+const writePromotionRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER'];
+const validatePromotionRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'CASHIER'];
+
+router.use(authenticateToken);
+
 // GET /api/promotions
-router.get('/', async (req, res) => {
+router.get('/', authorizeRoles(readPromotionRoles), async (req, res) => {
   try {
     const promos = await PromotionService.getAllPromotions();
     res.json(promos);
@@ -14,7 +22,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/promotions/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', authorizeRoles(readPromotionRoles), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const promo = await PromotionService.getPromotionById(id);
@@ -25,11 +33,8 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/promotions
-router.post('/', async (req, res) => {
+router.post('/', authorizeRoles(writePromotionRoles), async (req, res) => {
   try {
-    // Dữ liệu mẫu body:
-    // { "code": "TEST10", "name": "Test", "type": "PERCENTAGE", "value": 10, 
-    //   "startDate": "2023-10-01", "endDate": "2023-10-30" }
     const newPromo = await PromotionService.createPromotion(req.body);
     res.status(201).json(newPromo);
   } catch (error) {
@@ -38,7 +43,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/promotions/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorizeRoles(writePromotionRoles), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const updatedPromo = await PromotionService.updatePromotion(id, req.body);
@@ -49,7 +54,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/promotions/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorizeRoles(writePromotionRoles), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     await PromotionService.deletePromotion(id);
@@ -59,8 +64,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// POST /api/promotions/validate (API phụ trợ để check mã)
-router.post('/validate', async (req, res) => {
+// POST /api/promotions/validate
+router.post('/validate', authorizeRoles(validatePromotionRoles), async (req, res) => {
   try {
     const { code, orderTotal } = req.body;
     if (!code || orderTotal === undefined) {
