@@ -2,12 +2,18 @@ import { Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '@prisma/client'
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
 
 router.use(authenticateToken);
 router.use(requireActiveStore);
+
+const invoiceLookupRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'admin', 'manager', 'store_manager', 'cashier'];
+const returnCreateRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'admin', 'manager', 'store_manager', 'cashier'];
+const returnReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'CASHIER', 'admin', 'district_manager', 'manager', 'store_manager', 'cashier'];
+const managerRefundRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -34,7 +40,7 @@ const getOpenShiftId = async (storeId: number): Promise<number | null> => {
  * UC-M7: List invoices for return/refund lookup
  * GET /api/v1/returns/invoices?storeId=1&from=2025-01-01&to=2025-01-31&take=50&skip=0
  */
-router.get('/invoices', async (req, res, next) => {
+router.get('/invoices', authorizeRoles(invoiceLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const from = req.query.from ? new Date(String(req.query.from)) : null;
@@ -82,7 +88,7 @@ router.get('/invoices', async (req, res, next) => {
  * UC-M7: Invoice lookup for returns
  * GET /api/v1/returns/invoices/:id
  */
-router.get('/invoices/:id', async (req, res, next) => {
+router.get('/invoices/:id', authorizeRoles(invoiceLookupRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const invoiceId = Number(req.params.id);
@@ -161,7 +167,7 @@ router.get('/invoices/:id', async (req, res, next) => {
  *   items: [{ invoiceItemId: number, quantity: number, reason?: string }]
  * }
  */
-router.post('/', async (req, res, next) => {
+router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const createdByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -375,7 +381,7 @@ router.post('/', async (req, res, next) => {
  * UC-M7: List returns
  * GET /api/v1/returns?take=50&skip=0
  */
-router.get('/', async (req, res, next) => {
+router.get('/', authorizeRoles(returnReadRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
@@ -415,7 +421,7 @@ router.get('/', async (req, res, next) => {
  * UC-M7: Return details
  * GET /api/v1/returns/:id
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authorizeRoles(returnReadRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const id = Number(req.params.id);
@@ -448,7 +454,7 @@ router.get('/:id', async (req, res, next) => {
  * POST /api/v1/returns/refund
  * Body: { storeId, createdBy, items: [{ invoiceItemId, quantity }], reason? }
  */
-router.post('/refund', async (req, res, next) => {
+router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next) => {
   try {
     // Legacy endpoint. Prefer POST /api/v1/returns.
     const { createdBy, items, reason } = req.body ?? {};
