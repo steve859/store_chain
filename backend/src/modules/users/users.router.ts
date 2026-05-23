@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { UserService } from './users.service';
 import prisma from '../../db/prisma';
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = Router();
+
+router.use(authenticateToken);
+router.use(authorizeRoles(['ADMIN']));
 
 // GET /api/v1/users/meta
 router.get('/meta', async (_req, res) => {
