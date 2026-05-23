@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
 
 router.use(authenticateToken);
 router.use(requireActiveStore);
+
+const posOperationalRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'admin', 'manager', 'store_manager', 'cashier'];
+const posRefundRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
 
 const toNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -103,7 +107,7 @@ const computeShiftSummary = async (storeId: number, openedAt: Date, closedAt?: D
 };
 
 // UC-C5: Shift open (persisted in pos_shifts)
-router.post('/shifts/open', async (req, res, next) => {
+router.post('/shifts/open', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const openedByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -184,7 +188,7 @@ router.post('/shifts/open', async (req, res, next) => {
 });
 
 // UC-C5: Shift close (close current open shift for store)
-router.post('/shifts/close', async (req, res, next) => {
+router.post('/shifts/close', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const closedByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -243,7 +247,7 @@ router.post('/shifts/close', async (req, res, next) => {
 });
 
 // UC-C5: Get current open shift
-router.get('/shifts/current', async (req, res, next) => {
+router.get('/shifts/current', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
 
@@ -275,7 +279,7 @@ router.get('/shifts/current', async (req, res, next) => {
 // UC-C5: Cash movements during shift
 // POST /api/v1/pos/cash-movements
 // Body: { type: 'cash_in'|'cash_out', amount: number, reason?: string }
-router.post('/cash-movements', async (req, res, next) => {
+router.post('/cash-movements', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const createdByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
@@ -323,7 +327,7 @@ router.post('/cash-movements', async (req, res, next) => {
 });
 
 // GET /api/v1/pos/shifts/:id/cash-movements
-router.get('/shifts/:id/cash-movements', async (req, res, next) => {
+router.get('/shifts/:id/cash-movements', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const shiftId = Number(req.params.id);
@@ -350,7 +354,7 @@ router.get('/shifts/:id/cash-movements', async (req, res, next) => {
 
 // UC-C6: Inventory lookup for POS
 // GET /api/v1/pos/inventory/lookup?storeId=1&barcode=...   OR   ?storeId=1&variantId=10
-router.get('/inventory/lookup', async (req, res, next) => {
+router.get('/inventory/lookup', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.activeStoreId);
     const barcode = String(req.query.barcode ?? '').trim();
@@ -379,7 +383,7 @@ router.get('/inventory/lookup', async (req, res, next) => {
 });
 
 // UC-C4: Receipt payload
-router.get('/invoices/:id/receipt', async (req, res, next) => {
+router.get('/invoices/:id/receipt', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const invoiceId = Number(req.params.id);
     if (!Number.isFinite(invoiceId)) {
@@ -456,7 +460,7 @@ router.get('/invoices/:id/receipt', async (req, res, next) => {
  *   tax?: number
  * }
  */
-router.post('/checkout', async (req, res, next) => {
+router.post('/checkout', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const { customerId, paymentMethod, items, discount, tax, cashierId: cashierIdBody } = req.body ?? {};
     const storeId = Number(req.activeStoreId);
@@ -595,7 +599,7 @@ router.post('/checkout', async (req, res, next) => {
  * For now we implement as a lightweight held invoice by setting payment_method = null and invoice_number = null.
  * This does NOT require DB schema changes.
  */
-router.post('/hold', async (req, res, next) => {
+router.post('/hold', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const { customerId, items, cashierId: cashierIdBody } = req.body ?? {};
     const storeId = Number(req.activeStoreId);
@@ -711,7 +715,7 @@ router.post('/hold', async (req, res, next) => {
  * UC-C2: Resume held cart
  * Converts reserved quantities into a real checkout (decrement quantity, release reserved).
  */
-router.post('/resume/:id/checkout', async (req, res, next) => {
+router.post('/resume/:id/checkout', authorizeRoles(posOperationalRoles), async (req, res, next) => {
   try {
     const invoiceId = Number(req.params.id);
     const { paymentMethod } = req.body ?? {};
@@ -813,7 +817,7 @@ router.post('/resume/:id/checkout', async (req, res, next) => {
  * UC-C3: Partial refund ("refund nhỏ")
  * Body: { storeId, cashierId, items: [{ invoiceItemId, quantity }], reason? }
  */
-router.post('/refund', async (req, res, next) => {
+router.post('/refund', authorizeRoles(posRefundRoles), async (req, res, next) => {
   try {
     const { items, reason, cashierId: cashierIdBody } = req.body ?? {};
     const storeId = Number(req.activeStoreId);
