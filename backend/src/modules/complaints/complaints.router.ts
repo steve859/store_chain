@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ComplaintsService } from './complaints.service';
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
@@ -9,8 +10,14 @@ const router = Router();
 router.use(authenticateToken);
 router.use(requireActiveStoreUnlessAdmin);
 
+const complaintListRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'district_manager', 'manager', 'store_manager'];
+const complaintSubmitRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'cashier', 'inventory_staff'];
+const complaintDetailRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'district_manager', 'manager', 'store_manager'];
+const complaintStatusRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+const complaintDeleteRoles = ['ADMIN', 'admin'];
+
 // GET /api/v1/complaints?take&skip&q&status&employeeName
-router.get('/', async (req, res, next) => {
+router.get('/', authorizeRoles(complaintListRoles), async (req, res, next) => {
   try {
     const q = String(req.query.q ?? '').trim();
     const status = req.query.status ? String(req.query.status).trim() : undefined;
@@ -32,7 +39,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /api/v1/complaints/my?employeeName=...
-router.get('/my', async (req, res, next) => {
+router.get('/my', authorizeRoles(complaintSubmitRoles), async (req, res, next) => {
   try {
     const employeeName = String(req.query.employeeName ?? '').trim();
     if (!employeeName) {
@@ -49,7 +56,7 @@ router.get('/my', async (req, res, next) => {
 });
 
 // GET /api/v1/complaints/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authorizeRoles(complaintDetailRoles), async (req, res, next) => {
   try {
     const id = String(req.params.id ?? '').trim();
     const complaint = await ComplaintsService.get(id);
@@ -72,7 +79,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // POST /api/v1/complaints
-router.post('/', async (req, res, next) => {
+router.post('/', authorizeRoles(complaintSubmitRoles), async (req, res, next) => {
   try {
     const storeName = req.body?.storeName;
     const employeeName = req.body?.employeeName;
@@ -110,7 +117,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // PATCH /api/v1/complaints/:id/status
-router.patch('/:id/status', async (req, res, next) => {
+router.patch('/:id/status', authorizeRoles(complaintStatusRoles), async (req, res, next) => {
   try {
     const id = String(req.params.id ?? '').trim();
     const statusRaw = String(req.body?.status ?? '').trim();
@@ -183,7 +190,7 @@ router.patch('/:id/status', async (req, res, next) => {
 });
 
 // DELETE /api/v1/complaints/:id
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', authorizeRoles(complaintDeleteRoles), async (req, res, next) => {
   try {
     const id = String(req.params.id ?? '').trim();
 
