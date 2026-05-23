@@ -1,6 +1,11 @@
 node_modules/
 dist/
 /.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+!.env.example
 
 coverage/
 *.log
