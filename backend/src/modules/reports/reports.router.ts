@@ -9,6 +9,8 @@ const router = Router();
 router.use(authenticateToken);
 router.use(requireActiveStoreUnlessAdmin);
 
+const reportReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'district_manager', 'manager', 'store_manager'];
+
 // Helper để parse ngày tháng từ query param
 const parseDates = (req: Request) => {
   const { from, to } = req.query;
@@ -45,7 +47,7 @@ const getContextStoreId = (req: Request): number | undefined => {
  * GET /api/reports/dashboard
  * Tổng hợp các chỉ số chính
  */
-router.get('/dashboard', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
+router.get('/dashboard', authorizeRoles(reportReadRoles), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);
@@ -62,7 +64,7 @@ router.get('/dashboard', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'sto
  * GET /api/reports/revenue-chart
  * Dữ liệu biểu đồ đường
  */
-router.get('/revenue-chart', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
+router.get('/revenue-chart', authorizeRoles(reportReadRoles), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);
@@ -78,7 +80,7 @@ router.get('/revenue-chart', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 
  * GET /api/reports/top-products
  * Dữ liệu top sản phẩm bán chạy
  */
-router.get('/top-products', authorizeRoles(['ADMIN', 'STORE_MANAGER', 'admin', 'store_manager']), async (req: Request, res: Response) => {
+router.get('/top-products', authorizeRoles(reportReadRoles), async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = parseDates(req);
     const storeId = getContextStoreId(req);
