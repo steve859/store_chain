@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '@prisma/client'
+import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = Router();
+
+const readStoreRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER'];
+const writeStoreRoles = ['ADMIN', 'DISTRICT_MANAGER'];
+
+router.use(authenticateToken);
 
 const buildNextStoreCode = async (): Promise<string> => {
   const result = await prisma.stores.aggregate({
@@ -16,7 +23,7 @@ const buildNextStoreCode = async (): Promise<string> => {
  * UC-S1: Store list
  * GET /api/v1/stores?take=50&skip=0&q=q1
  */
-router.get('/', async (req, res, next) => {
+router.get('/', authorizeRoles(readStoreRoles), async (req, res, next) => {
   try {
     const q = String(req.query.q ?? '').trim();
     const take = req.query.take ? Math.min(Number(req.query.take), 200) : 50;
@@ -103,7 +110,7 @@ router.get('/', async (req, res, next) => {
  * UC-S1: Store details
  * GET /api/v1/stores/:id
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authorizeRoles(readStoreRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
@@ -125,7 +132,7 @@ router.get('/:id', async (req, res, next) => {
  * UC-S1: Store overview (details modal)
  * GET /api/v1/stores/:id/overview
  */
-router.get('/:id/overview', async (req, res, next) => {
+router.get('/:id/overview', authorizeRoles(readStoreRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
@@ -206,7 +213,7 @@ router.get('/:id/overview', async (req, res, next) => {
  * POST /api/v1/stores
  * Body: { code?: string, name: string, address?: string, phone?: string, timezone?: string, isActive?: boolean }
  */
-router.post('/', async (req, res, next) => {
+router.post('/', authorizeRoles(writeStoreRoles), async (req, res, next) => {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = body.name !== undefined && body.name !== null ? String(body.name).trim() : '';
@@ -238,7 +245,7 @@ router.post('/', async (req, res, next) => {
  * UC-S1: Update store
  * PUT /api/v1/stores/:id
  */
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', authorizeRoles(writeStoreRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
@@ -269,7 +276,7 @@ router.put('/:id', async (req, res, next) => {
  * UC-S1: Deactivate store (soft delete)
  * DELETE /api/v1/stores/:id
  */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', authorizeRoles(writeStoreRoles), async (req, res, next) => {
   try {
     const storeId = Number(req.params.id);
     if (!Number.isFinite(storeId)) {
