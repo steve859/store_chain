@@ -2,11 +2,15 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 
 const router = Router();
 
 router.use(authenticateToken);
+
+const transferReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
+const transferWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -28,7 +32,7 @@ const generateTransferNumber = (): string => {
  * UC-M8: List transfers
  * GET /api/v1/transfers?fromStoreId=1&toStoreId=2&status=pending&take=50&skip=0&q=tr-
  */
-router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/', requireActiveStoreUnlessAdmin, authorizeRoles(transferReadRoles), async (req, res, next) => {
   try {
     const fromStoreId = req.query.fromStoreId ? Number(req.query.fromStoreId) : undefined;
     const toStoreId = req.query.toStoreId ? Number(req.query.toStoreId) : undefined;
@@ -97,7 +101,7 @@ router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
  * UC-M8: Transfer details
  * GET /api/v1/transfers/:id
  */
-router.get('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(transferReadRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -136,7 +140,7 @@ router.get('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
  *   items: Array<{ variantId: number, quantity: number }>
  * }
  */
-router.post('/', requireActiveStore, async (req, res, next) => {
+router.post('/', requireActiveStore, authorizeRoles(transferWriteRoles), async (req, res, next) => {
   try {
     const { fromStoreId, toStoreId, createdBy, transferNumber, items } = req.body ?? {};
     const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
@@ -245,7 +249,7 @@ router.post('/', requireActiveStore, async (req, res, next) => {
  * POST /api/v1/transfers/:id/dispatch
  * Body: { createdBy?: number, referenceId?: string, reason?: string }
  */
-router.post('/:id/dispatch', async (req, res, next) => {
+router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(transferWriteRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -317,7 +321,7 @@ router.post('/:id/dispatch', async (req, res, next) => {
  * POST /api/v1/transfers/:id/receive
  * Body: { createdBy?: number, referenceId?: string, reason?: string, items?: Array<{ variantId: number, receivedQty: number }> }
  */
-router.post('/:id/receive', async (req, res, next) => {
+router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transferWriteRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -456,7 +460,7 @@ router.post('/:id/receive', async (req, res, next) => {
  * UC-M8: Cancel transfer (only while pending)
  * POST /api/v1/transfers/:id/cancel
  */
-router.post('/:id/cancel', async (req, res, next) => {
+router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transferWriteRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
