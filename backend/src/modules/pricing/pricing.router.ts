@@ -7,12 +7,14 @@ import {
   updateDemandMetricsHandler,
   recordCompetitorPriceHandler,
 } from './pricing.controller';
+import { authenticateToken } from '../../middlewares/auth.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = express.Router();
 
 // All pricing routes require authentication and active store
+router.use(authenticateToken);
 router.use(requireActiveStore);
 
 // Admin-only: manage pricing rules
