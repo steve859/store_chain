@@ -39,6 +39,14 @@ const transferItem = {
   received_quantity: new Prisma.Decimal(0),
 };
 
+const transferDetail = {
+  id: 30,
+  from_store_id: 1,
+  to_store_id: 2,
+  status: 'pending',
+  store_transfer_items: [transferItem],
+};
+
 const mockDispatchTransaction = (fromStoreId: number) => {
   const updateInventory = jest.fn(async () => ({ id: 20 }));
   const createMovement = jest.fn(async () => ({ id: 40 }));
@@ -239,6 +247,102 @@ describe('Transfer route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.transfer).toMatchObject({ id: 30, from_store_id: 1, to_store_id: 2 });
+  });
+
+  it('returns 403 when non-admin active store is not transfer source or destination', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2, 3], primaryStoreId: 3 });
+    (prisma.store_transfers.findUnique as unknown as jest.Mock).mockResolvedValueOnce(transferDetail);
+
+    const res = await request(app)
+      .get('/api/v1/transfers/30')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '3');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: transfer does not belong to active store' });
+  });
+
+  it('allows non-admin source store to view transfer detail', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    (prisma.store_transfers.findUnique as unknown as jest.Mock).mockResolvedValueOnce(transferDetail);
+
+    const res = await request(app)
+      .get('/api/v1/transfers/30')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      transfer: expect.objectContaining({
+        id: 30,
+        from_store_id: 1,
+        to_store_id: 2,
+        status: 'pending',
+        store_transfer_items: [
+          expect.objectContaining({
+            id: 100,
+            variant_id: 10,
+            quantity: '2',
+            received_quantity: '0',
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('allows non-admin destination store to view transfer detail', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 2 });
+    (prisma.store_transfers.findUnique as unknown as jest.Mock).mockResolvedValueOnce(transferDetail);
+
+    const res = await request(app)
+      .get('/api/v1/transfers/30')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '2');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      transfer: expect.objectContaining({
+        id: 30,
+        from_store_id: 1,
+        to_store_id: 2,
+        status: 'pending',
+        store_transfer_items: [
+          expect.objectContaining({
+            id: 100,
+            variant_id: 10,
+            quantity: '2',
+            received_quantity: '0',
+          }),
+        ],
+      }),
+    });
+  });
+
+  it('allows ADMIN to view transfer detail without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    (prisma.store_transfers.findUnique as unknown as jest.Mock).mockResolvedValueOnce(transferDetail);
+
+    const res = await request(app)
+      .get('/api/v1/transfers/30')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      transfer: expect.objectContaining({
+        id: 30,
+        from_store_id: 1,
+        to_store_id: 2,
+        status: 'pending',
+        store_transfer_items: [
+          expect.objectContaining({
+            id: 100,
+            variant_id: 10,
+            quantity: '2',
+            received_quantity: '0',
+          }),
+        ],
+      }),
+    });
   });
 
   it('allows STORE_MANAGER to reach the dispatch handler path', async () => {

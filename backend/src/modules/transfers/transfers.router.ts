@@ -122,6 +122,15 @@ router.get('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(transferReadRol
       return res.status(404).json({ error: 'Transfer not found' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const isSourceStore = Number(transfer.from_store_id) === activeStoreId;
+    const isDestinationStore = Number(transfer.to_store_id) === activeStoreId;
+    if (!isAdmin && !isSourceStore && !isDestinationStore) {
+      return res.status(403).json({ error: 'Forbidden: transfer does not belong to active store' });
+    }
+
     return res.json({ transfer });
   } catch (err) {
     next(err);
