@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { ComplaintsService } from './complaints.service';
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -15,6 +16,57 @@ const complaintSubmitRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'INVENTORY_ST
 const complaintDetailRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'district_manager', 'manager', 'store_manager'];
 const complaintStatusRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
 const complaintDeleteRoles = ['ADMIN', 'admin'];
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const preview = (value: unknown, length = 80): string | undefined => {
+  const text = value === undefined || value === null ? '' : String(value).trim();
+  return text ? text.slice(0, length) : undefined;
+};
+
+const complaintStatusSnapshot = (complaint: unknown) => {
+  const row = asRecord(complaint);
+  const adminNotePreview = preview(row.adminNote);
+  return {
+    id: row.id,
+    storeId: row.storeId,
+    status: row.status,
+    adminNotePresent: adminNotePreview !== undefined,
+    adminNotePreview,
+  };
+};
+
+const complaintDeleteSnapshot = (complaint: unknown) => {
+  const row = asRecord(complaint);
+  const reasonPreview = preview(row.reason);
+  return {
+    id: row.id,
+    storeId: row.storeId,
+    status: row.status,
+    reasonPresent: reasonPreview !== undefined,
+    reasonPreview,
+    date: row.date,
+  };
+};
 
 // GET /api/v1/complaints?take&skip&q&status&employeeName
 router.get('/', authorizeRoles(complaintListRoles), async (req, res, next) => {
@@ -192,6 +244,27 @@ router.patch('/:id/status', authorizeRoles(complaintStatusRoles), async (req, re
       return res.status(404).json({ error: 'Complaint not found' });
     }
 
+    const adminNotePreview = preview(adminNote);
+    await writeAuditLog({
+      action: 'COMPLAINT_STATUS_UPDATED',
+      objectType: 'complaint',
+      objectId: id,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId: existing.storeId,
+        before: complaintStatusSnapshot(existing),
+        after: complaintStatusSnapshot(updated),
+        metadata: {
+          requestedStatus: statusRaw,
+          normalizedStatus,
+          adminNotePresent: adminNotePreview !== undefined,
+          adminNotePreview,
+        },
+      },
+    });
+
     res.json(updated);
   } catch (err) {
     next(err);
@@ -221,6 +294,23 @@ router.delete('/:id', authorizeRoles(complaintDeleteRoles), async (req, res, nex
     if (!ok) {
       return res.status(404).json({ error: 'Complaint not found' });
     }
+    await writeAuditLog({
+      action: 'COMPLAINT_DELETED',
+      objectType: 'complaint',
+      objectId: id,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId: existing.storeId,
+        before: complaintDeleteSnapshot(existing),
+        metadata: {
+          employeeNamePresent: preview(existing.employeeName) !== undefined,
+          descriptionPresent: preview(existing.description) !== undefined,
+          imagePresent: preview(existing.image) !== undefined,
+        },
+      },
+    });
     res.json({ message: 'Deleted' });
   } catch (err) {
     next(err);

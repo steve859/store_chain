@@ -25,9 +25,18 @@ jest.mock('../src/db/prisma', () => {
   };
 });
 
+jest.mock('../src/modules/audit_logs/audit_logs.service', () => ({
+  AuditLogsService: {
+    createLog: jest.fn(),
+  },
+}));
+
 import app from '../src/app';
 import prisma from '../src/db/prisma';
 import { ComplaintsService } from '../src/modules/complaints/complaints.service';
+import { AuditLogsService } from '../src/modules/audit_logs/audit_logs.service';
+
+const auditLogsMock = AuditLogsService as jest.Mocked<typeof AuditLogsService>;
 
 const signToken = (overrides?: Record<string, unknown>) => {
   const payload = {
@@ -162,16 +171,62 @@ describe('Complaints route protection', () => {
   });
 
   it('allows STORE_MANAGER to update complaint status', async () => {
-    const token = signToken({ role: 'store_manager' });
+    const token = signToken({ userId: 77, role: 'store_manager' });
+    auditLogsMock.createLog.mockResolvedValueOnce(undefined);
 
     const res = await request(app)
       .patch('/api/v1/complaints/CPL-000001/status')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '1')
-      .send({ status: 'processing' });
+      .set('User-Agent', 'complaints-test-agent')
+      .send({
+        status: 'processing',
+        adminNote: 'Escalated to manager',
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        secret: 'should-not-be-logged',
+        customerEmail: 'customer@example.com',
+      });
 
     expect(res.status).toBe(200);
-    expect(ComplaintsService.updateStatus).toHaveBeenCalledWith('CPL-000001', 'Đang xử lý', null);
+    expect(ComplaintsService.updateStatus).toHaveBeenCalledWith('CPL-000001', 'Đang xử lý', 'Escalated to manager');
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'COMPLAINT_STATUS_UPDATED',
+        objectType: 'complaint',
+        objectId: 'CPL-000001',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'complaints-test-agent' }),
+          storeId: 1,
+          before: expect.objectContaining({
+            id: 'CPL-000001',
+            storeId: 1,
+            status: 'Chờ xử lý',
+            adminNotePresent: false,
+          }),
+          after: expect.objectContaining({
+            id: 'CPL-000001',
+            storeId: 1,
+            status: 'Đang xử lý',
+          }),
+          metadata: expect.objectContaining({
+            requestedStatus: 'processing',
+            normalizedStatus: 'Đang xử lý',
+            adminNotePresent: true,
+            adminNotePreview: 'Escalated to manager',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('secret');
+    expect(auditPayload).not.toContain('customer@example.com');
   });
 
   it('keeps invalid complaint status rejected with existing 400 response', async () => {
@@ -187,6 +242,7 @@ describe('Complaints route protection', () => {
     expect(res.body.error).toContain('Invalid status. Allowed:');
     expect(ComplaintsService.get).not.toHaveBeenCalled();
     expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('keeps missing complaint status update returned as 404', async () => {
@@ -202,6 +258,22 @@ describe('Complaints route protection', () => {
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Complaint not found' });
     expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps status update response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'store_manager' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+
+    const res = await request(app)
+      .patch('/api/v1/complaints/CPL-000001/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({ id: 'CPL-000001', status: 'Đang xử lý' }));
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'COMPLAINT_STATUS_UPDATED' }));
   });
 
   it('rejects CASHIER from updating status or deleting complaints', async () => {
@@ -222,6 +294,7 @@ describe('Complaints route protection', () => {
     expect(deleteRes.status).toBe(403);
     expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
     expect(ComplaintsService.remove).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('keeps cross-store detail check rejected with 403', async () => {
@@ -359,6 +432,100 @@ describe('Complaints route protection', () => {
     expect(ComplaintsService.remove).toHaveBeenCalledTimes(1);
   });
 
+  it('does not write success audit logs for non-admin store mismatch governance requests', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1], primaryStoreId: 1 });
+
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({ ...complaint, storeId: 2 });
+    const statusRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000002/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({ ...complaint, storeId: 2 });
+    const deleteRes = await request(app)
+      .delete('/api/v1/complaints/CPL-000002')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(statusRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('writes COMPLAINT_DELETED audit log after successful delete', async () => {
+    const token = signToken({ userId: 99, role: 'admin', storeIds: [], primaryStoreId: null });
+    (ComplaintsService.get as unknown as jest.Mock).mockReset();
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({
+      ...complaint,
+      description: 'full complaint description should not be logged',
+      image: 'base64-image-payload',
+      employeeName: 'cashier one',
+    });
+
+    const res = await request(app)
+      .delete('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`)
+      .set('User-Agent', 'complaints-test-agent')
+      .send({
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        secret: 'should-not-be-logged',
+        customerEmail: 'customer@example.com',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ message: 'Deleted' });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'COMPLAINT_DELETED',
+        objectType: 'complaint',
+        objectId: 'CPL-000001',
+        userId: 99,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'complaints-test-agent' }),
+          storeId: 1,
+          before: expect.objectContaining({
+            id: 'CPL-000001',
+            storeId: 1,
+            status: 'Chờ xử lý',
+            reasonPresent: true,
+            reasonPreview: 'test',
+          }),
+          metadata: expect.objectContaining({
+            employeeNamePresent: true,
+            descriptionPresent: true,
+            imagePresent: true,
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('secret');
+    expect(auditPayload).not.toContain('customer@example.com');
+    expect(auditPayload).not.toContain('full complaint description should not be logged');
+    expect(auditPayload).not.toContain('base64-image-payload');
+    expect(auditPayload).not.toContain('cashier one');
+  });
+
+  it('keeps delete response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+
+    const res = await request(app)
+      .delete('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ message: 'Deleted' });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'COMPLAINT_DELETED' }));
+  });
+
   it('rejects STORE_MANAGER status update when complaint storeId is null, missing, or invalid', async () => {
     const token = signToken({ role: 'store_manager', storeIds: [1], primaryStoreId: 1 });
     const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
@@ -469,5 +636,6 @@ describe('Complaints route protection', () => {
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Complaint not found' });
     expect(ComplaintsService.remove).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 });
