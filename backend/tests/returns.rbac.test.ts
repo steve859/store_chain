@@ -113,20 +113,24 @@ const mockStandardReturnTransaction = (overrides?: {
   (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValue({ id: 70 });
 };
 
-const mockManagerRefundTransaction = () => {
+const mockManagerRefundTransaction = (overrides?: {
+  invoiceItems?: Array<typeof invoiceItem>;
+  invoice?: { id: number; store_id: number } | null;
+  inventory?: { id: number; quantity: Prisma.Decimal } | null;
+}) => {
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       invoice_items: {
-        findMany: jest.fn(async () => [invoiceItem]),
+        findMany: jest.fn(async () => overrides?.invoiceItems ?? [invoiceItem]),
       },
       invoices: {
-        findUnique: jest.fn(async () => ({ id: 1, store_id: 1 })),
+        findUnique: jest.fn(async () => (overrides && 'invoice' in overrides ? overrides.invoice : { id: 1, store_id: 1 })),
       },
       audit_logs: {
         create: jest.fn(async () => ({ id: 80 })),
       },
       inventories: {
-        findFirst: jest.fn(async () => ({ id: 30, quantity: new Prisma.Decimal(5) })),
+        findFirst: jest.fn(async () => (overrides && 'inventory' in overrides ? overrides.inventory : { id: 30, quantity: new Prisma.Decimal(5) })),
         update: jest.fn(async () => ({ id: 30 })),
       },
       stock_movements: {
@@ -414,5 +418,85 @@ describe('Returns route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ refund: { invoiceId: 1, totalRefund: 1000, auditLogId: '80' } });
+  });
+
+  it('returns 403 when legacy manager refund invoice belongs to a different store', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockManagerRefundTransaction({ invoice: { id: 1, store_id: 2 } });
+
+    const res = await request(app)
+      .post('/api/v1/returns/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ items: [{ invoiceItemId: 10, quantity: 1 }] });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Invoice does not belong to this store' });
+  });
+
+  it('returns 404 when legacy manager refund invoice item is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockManagerRefundTransaction({ invoiceItems: [] });
+
+    const res = await request(app)
+      .post('/api/v1/returns/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ items: [{ invoiceItemId: 10, quantity: 1 }] });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'One or more invoice items not found' });
+  });
+
+  it('returns 400 when legacy manager refund items belong to different invoices', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockManagerRefundTransaction({
+      invoiceItems: [
+        invoiceItem,
+        { ...invoiceItem, id: 11, invoice_id: 2, variant_id: 21 },
+      ],
+    });
+
+    const res = await request(app)
+      .post('/api/v1/returns/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [
+          { invoiceItemId: 10, quantity: 1 },
+          { invoiceItemId: 11, quantity: 1 },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Refund items must belong to the same invoice' });
+  });
+
+  it('returns 409 when legacy manager refund quantity exceeds sold quantity', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockManagerRefundTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/returns/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ items: [{ invoiceItemId: 10, quantity: 3 }] });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Refund quantity exceeds sold quantity for invoice item 10' });
+  });
+
+  it('returns 409 when legacy manager refund inventory is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockManagerRefundTransaction({ inventory: null });
+
+    const res = await request(app)
+      .post('/api/v1/returns/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ items: [{ invoiceItemId: 10, quantity: 1 }] });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Inventory not found for variant 20' });
   });
 });

@@ -494,6 +494,10 @@ router.get('/:id', authorizeRoles(returnReadRoles), async (req, res, next) => {
  */
 router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next) => {
   try {
+    type ManagerRefundErrorResult = { __error: true; status: number; body: { error: string } };
+    const isManagerRefundErrorResult = (value: unknown): value is ManagerRefundErrorResult =>
+      Boolean(value && typeof value === 'object' && '__error' in value);
+
     // Legacy endpoint. Prefer POST /api/v1/returns.
     const { createdBy, items, reason } = req.body ?? {};
     const storeId = Number(req.activeStoreId);
@@ -522,21 +526,62 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
       });
 
       if (invoiceItems.length !== parsedItems.length) {
-        throw new Error('One or more invoice items not found');
+        return { __error: true, status: 404, body: { error: 'One or more invoice items not found' } };
       }
 
       const invoiceId = invoiceItems[0].invoice_id;
       if (!invoiceId || invoiceItems.some((it) => it.invoice_id !== invoiceId)) {
-        throw new Error('Refund items must belong to the same invoice');
+        return { __error: true, status: 400, body: { error: 'Refund items must belong to the same invoice' } };
       }
 
       const invoice = await tx.invoices.findUnique({ where: { id: invoiceId } });
       if (!invoice) {
-        throw new Error('Invoice not found');
+        return { __error: true, status: 404, body: { error: 'Invoice not found' } };
       }
 
       if (Number(invoice.store_id) !== Number(storeId)) {
-        throw new Error('Invoice does not belong to this store');
+        return { __error: true, status: 403, body: { error: 'Invoice does not belong to this store' } };
+      }
+
+      let totalRefund = 0;
+      const itemRows: Array<{
+        invoiceItemId: number;
+        variantId: number;
+        refundQty: number;
+        unitPrice: number;
+        inventory: { id: number };
+      }> = [];
+
+      for (const reqItem of parsedItems) {
+        const invItem = invoiceItems.find((it) => it.id === reqItem.invoiceItemId)!;
+        if (!invItem.variant_id) {
+          return { __error: true, status: 409, body: { error: `Invoice item ${invItem.id} missing variant_id` } };
+        }
+
+        const soldQty = Number(invItem.quantity);
+        const refundQty = reqItem.quantity;
+        if (refundQty > soldQty) {
+          return { __error: true, status: 409, body: { error: `Refund quantity exceeds sold quantity for invoice item ${invItem.id}` } };
+        }
+
+        const unitPrice = Number(invItem.unit_price);
+
+        const inventory = await tx.inventories.findFirst({
+          where: { store_id: Number(storeId), variant_id: invItem.variant_id },
+        });
+
+        if (!inventory) {
+          return { __error: true, status: 409, body: { error: `Inventory not found for variant ${invItem.variant_id}` } };
+        }
+
+        totalRefund += unitPrice * refundQty;
+        itemRows.push({
+          invoiceItemId: invItem.id,
+          variantId: invItem.variant_id,
+          refundQty,
+          unitPrice,
+          inventory,
+        });
       }
 
       const audit = await tx.audit_logs.create({
@@ -553,35 +598,12 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
         },
       });
 
-      let totalRefund = 0;
-
-      for (const reqItem of parsedItems) {
-        const invItem = invoiceItems.find((it) => it.id === reqItem.invoiceItemId)!;
-        if (!invItem.variant_id) {
-          throw new Error(`Invoice item ${invItem.id} missing variant_id`);
-        }
-
-        const soldQty = Number(invItem.quantity);
-        const refundQty = reqItem.quantity;
-        if (refundQty > soldQty) {
-          throw new Error(`Refund quantity exceeds sold quantity for invoice item ${invItem.id}`);
-        }
-
-        const unitPrice = Number(invItem.unit_price);
-        totalRefund += unitPrice * refundQty;
-
-        const inventory = await tx.inventories.findFirst({
-          where: { store_id: Number(storeId), variant_id: invItem.variant_id },
-        });
-
-        if (!inventory) {
-          throw new Error(`Inventory not found for variant ${invItem.variant_id}`);
-        }
+      for (const row of itemRows) {
 
         await tx.inventories.update({
-          where: { id: inventory.id },
+          where: { id: row.inventory.id },
           data: {
-            quantity: { increment: refundQty },
+            quantity: { increment: row.refundQty },
             last_update: new Date(),
           },
         });
@@ -589,8 +611,8 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
         await tx.stock_movements.create({
           data: {
             store_id: Number(storeId),
-            variant_id: invItem.variant_id,
-            change: refundQty,
+            variant_id: row.variantId,
+            change: row.refundQty,
             movement_type: 'refund',
             reference_id: `audit:${audit.id.toString()}`,
             reason: reason ? String(reason) : 'Manager refund',
@@ -605,6 +627,10 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
         auditLogId: audit.id.toString(),
       };
     });
+
+    if (isManagerRefundErrorResult(refundResult)) {
+      return res.status(refundResult.status).json(refundResult.body);
+    }
 
     return res.status(201).json({ refund: refundResult });
   } catch (err) {
