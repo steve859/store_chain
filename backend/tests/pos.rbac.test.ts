@@ -4,21 +4,23 @@ import jwt from 'jsonwebtoken';
 jest.mock('../src/db/prisma', () => {
   return {
     __esModule: true,
-    default: {
-      $transaction: jest.fn(),
-      pos_shifts: {
-        findFirst: jest.fn(),
-      },
-      invoices: {
-        aggregate: jest.fn(),
-        findUnique: jest.fn(),
-      },
-      cash_movements: {
-        aggregate: jest.fn(),
-      },
-      variant_prices: {
-        findMany: jest.fn(),
-      },
+      default: {
+        $transaction: jest.fn(),
+        pos_shifts: {
+          findFirst: jest.fn(),
+          update: jest.fn(),
+        },
+        invoices: {
+          aggregate: jest.fn(),
+          findUnique: jest.fn(),
+        },
+        cash_movements: {
+          aggregate: jest.fn(),
+          create: jest.fn(),
+        },
+        variant_prices: {
+          findMany: jest.fn(),
+        },
     },
   };
 });
@@ -189,6 +191,40 @@ const mockResumeCheckoutTransaction = (invoiceStoreId: number) => {
 
   return { updateInventory, updateInvoice, createMovement };
 };
+
+const mockOpenShift = () => ({
+  id: 12,
+  store_id: 1,
+  status: 'open',
+  opened_by: 77,
+  opened_at: new Date('2026-05-24T08:00:00.000Z'),
+  opening_cash: 100,
+  note: null,
+});
+
+const mockClosedShift = () => ({
+  id: 12,
+  store_id: 1,
+  status: 'closed',
+  opened_by: 77,
+  opened_at: new Date('2026-05-24T08:00:00.000Z'),
+  opening_cash: 100,
+  closed_by: 77,
+  closed_at: new Date('2026-05-24T12:00:00.000Z'),
+  closing_cash: 150,
+  note: 'End of shift',
+});
+
+const mockCashMovement = () => ({
+  id: '88',
+  store_id: 1,
+  shift_id: 12,
+  type: 'cash_out',
+  amount: 25,
+  reason: 'Supplies',
+  created_by: 77,
+  created_at: new Date('2026-05-24T10:00:00.000Z'),
+});
 
 describe('POS route protection', () => {
   beforeEach(() => {
@@ -382,6 +418,223 @@ describe('POS route protection', () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'Invalid invoice id' });
     expect(prisma.invoices.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('writes SHIFT_CLOSED audit log after successful shift close', async () => {
+    const token = signToken({ userId: 77, role: 'store_manager' });
+    const openShift = mockOpenShift();
+    const closedShift = mockClosedShift();
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(openShift);
+    (prisma.pos_shifts.update as unknown as jest.Mock).mockResolvedValueOnce(closedShift);
+
+    const res = await request(app)
+      .post('/api/v1/pos/shifts/close')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'pos-test-agent')
+      .send({
+        closingCash: 150,
+        note: 'End of shift',
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        cardNumber: '4111111111111111',
+        customerPhone: '555-0100',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.shift).toEqual({
+      storeId: 1,
+      id: 12,
+      openedBy: 77,
+      openedAt: openShift.opened_at.toISOString(),
+      openingCash: 100,
+      closedBy: 77,
+      closedAt: closedShift.closed_at.toISOString(),
+      closingCash: 150,
+      note: 'End of shift',
+      status: 'closed',
+      summary: {
+        totalSales: 0,
+        transactionsCount: 0,
+        cashSales: 0,
+        cashTransactionsCount: 0,
+        cashIn: 0,
+        cashOut: 0,
+        expectedCash: 100,
+        difference: 50,
+      },
+    });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SHIFT_CLOSED',
+        objectType: 'pos_shift',
+        objectId: '12',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'pos-test-agent' }),
+          storeId: 1,
+          before: expect.objectContaining({ id: 12, status: 'open', openedBy: 77, openingCash: 100 }),
+          after: expect.objectContaining({ id: 12, status: 'closed', closedBy: 77, closingCash: 150 }),
+          metadata: expect.objectContaining({
+            expectedCash: 100,
+            difference: 50,
+            notePresent: true,
+            notePreview: 'End of shift',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('4111111111111111');
+    expect(auditPayload).not.toContain('555-0100');
+  });
+
+  it('does not write SHIFT_CLOSED audit log when no open shift exists', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/v1/pos/shifts/close')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ closingCash: 150 });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'No open shift found' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps shift close response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'store_manager' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(mockOpenShift());
+    (prisma.pos_shifts.update as unknown as jest.Mock).mockResolvedValueOnce(mockClosedShift());
+
+    const res = await request(app)
+      .post('/api/v1/pos/shifts/close')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ closingCash: 150 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.shift.id).toBe(12);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'SHIFT_CLOSED' }));
+  });
+
+  it('writes CASH_MOVEMENT_CREATED audit log after successful cash movement', async () => {
+    const token = signToken({ userId: 77, role: 'store_manager' });
+    const openShift = mockOpenShift();
+    const movement = mockCashMovement();
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(openShift);
+    (prisma.cash_movements.create as unknown as jest.Mock).mockResolvedValueOnce(movement);
+
+    const res = await request(app)
+      .post('/api/v1/pos/cash-movements')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'pos-test-agent')
+      .send({
+        type: 'cash_out',
+        amount: 25,
+        reason: 'Supplies',
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        cardNumber: '4111111111111111',
+        customerPhone: '555-0100',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      movement: {
+        id: '88',
+        store_id: 1,
+        shift_id: 12,
+        type: 'cash_out',
+        amount: 25,
+        reason: 'Supplies',
+        created_by: 77,
+        created_at: movement.created_at.toISOString(),
+      },
+      shiftId: 12,
+      summary: {
+        totalSales: 0,
+        transactionsCount: 0,
+        cashSales: 0,
+        cashTransactionsCount: 0,
+        cashIn: 0,
+        cashOut: 0,
+        expectedCash: 100,
+      },
+    });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CASH_MOVEMENT_CREATED',
+        objectType: 'cash_movement',
+        objectId: '88',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'pos-test-agent' }),
+          storeId: 1,
+          after: expect.objectContaining({
+            id: '88',
+            shiftId: 12,
+            type: 'cash_out',
+            amount: 25,
+            createdBy: 77,
+          }),
+          metadata: expect.objectContaining({
+            expectedCash: 100,
+            reasonPresent: true,
+            reasonPreview: 'Supplies',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('4111111111111111');
+    expect(auditPayload).not.toContain('555-0100');
+  });
+
+  it('does not write CASH_MOVEMENT_CREATED audit log when no shift is open', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/v1/pos/cash-movements')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ type: 'cash_out', amount: 25 });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'No open shift. Please open shift first.' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps cash movement response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'store_manager' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(mockOpenShift());
+    (prisma.cash_movements.create as unknown as jest.Mock).mockResolvedValueOnce(mockCashMovement());
+
+    const res = await request(app)
+      .post('/api/v1/pos/cash-movements')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ type: 'cash_out', amount: 25 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.movement.id).toBe('88');
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'CASH_MOVEMENT_CREATED' }));
   });
 
   it('allows STORE_MANAGER to access legacy POS refund', async () => {

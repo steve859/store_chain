@@ -248,7 +248,8 @@ router.post('/shifts/close', authorizeRoles(posOperationalRoles), async (req, re
     const expectedCash = decimalToNumber(open.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
     const difference = (closingCash ?? 0) - expectedCash;
 
-    return res.status(201).json({
+    const noteText = note ?? '';
+    const shiftResponse = {
       shift: {
         storeId,
         id: updated.id,
@@ -262,7 +263,42 @@ router.post('/shifts/close', authorizeRoles(posOperationalRoles), async (req, re
         status: 'closed',
         summary: { ...summary, expectedCash, difference },
       },
+    };
+
+    await writeAuditLog({
+      action: 'SHIFT_CLOSED',
+      objectType: 'pos_shift',
+      objectId: updated?.id !== undefined && updated?.id !== null ? String(updated.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        before: {
+          id: open.id,
+          status: open.status,
+          openedBy: open.opened_by,
+          openedAt: open.opened_at,
+          openingCash: decimalToNumber(open.opening_cash),
+        },
+        after: {
+          id: updated.id,
+          status: updated.status,
+          closedBy: updated.closed_by,
+          closedAt: updated.closed_at,
+          closingCash: decimalToNumber(updated.closing_cash),
+        },
+        metadata: {
+          ...summary,
+          expectedCash,
+          difference,
+          notePresent: noteText.length > 0,
+          notePreview: noteText ? noteText.slice(0, 80) : undefined,
+        },
+      },
     });
+
+    return res.status(201).json(shiftResponse);
   } catch (err) {
     next(err);
   }
@@ -341,6 +377,34 @@ router.post('/cash-movements', authorizeRoles(posOperationalRoles), async (req, 
 
     const summary = await computeShiftSummary(storeId, open.opened_at);
     const expectedCash = decimalToNumber(open.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
+
+    const reasonText = reason ?? '';
+    const movementRecord = asRecord(movement);
+    await writeAuditLog({
+      action: 'CASH_MOVEMENT_CREATED',
+      objectType: 'cash_movement',
+      objectId: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: {
+          id: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+          shiftId: movementRecord.shift_id ?? movementRecord.shiftId,
+          type: movementRecord.type,
+          amount: movementRecord.amount,
+          createdBy: movementRecord.created_by ?? movementRecord.createdBy,
+          createdAt: movementRecord.created_at ?? movementRecord.createdAt,
+        },
+        metadata: {
+          ...summary,
+          expectedCash,
+          reasonPresent: reasonText.length > 0,
+          reasonPreview: reasonText ? reasonText.slice(0, 80) : undefined,
+        },
+      },
+    });
 
     return res.status(201).json({ movement, shiftId: open.id, summary: { ...summary, expectedCash } });
   } catch (err) {
