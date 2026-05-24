@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -11,6 +12,71 @@ router.use(authenticateToken);
 
 const transferReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
 const transferWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
+
+type DispatchAuditDetails = {
+  before: unknown;
+  items: unknown[];
+  stockMovementIds: string[];
+  fromStoreId: number;
+  toStoreId: number;
+};
+
+type ReceiveAuditDetails = {
+  before: unknown;
+  items: unknown[];
+  receivedItems: Array<{ variantId: number; receivedQty: string }>;
+  stockMovementIds: string[];
+  fromStoreId: number;
+  toStoreId: number;
+};
+
+type CancelAuditDetails = {
+  before: unknown;
+  items: unknown[];
+  fromStoreId: number;
+  toStoreId?: number | null;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const safeTransferSnapshot = (transfer: unknown) => {
+  if (!transfer) return null;
+  const row = asRecord(transfer);
+  return {
+    id: row.id,
+    transfer_number: row.transfer_number,
+    from_store_id: row.from_store_id,
+    to_store_id: row.to_store_id,
+    status: row.status,
+    created_by: row.created_by,
+    created_at: row.created_at,
+  };
+};
+
+const transferItemMetadata = (items: unknown[]) => ({
+  itemCount: items.length,
+  variantIds: items.map((item) => asRecord(item).variant_id).filter((variantId) => variantId !== undefined && variantId !== null),
+  quantities: items.map((item) => String(asRecord(item).quantity)),
+});
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -247,6 +313,29 @@ router.post('/', requireActiveStore, authorizeRoles(transferWriteRoles), async (
       });
     });
 
+    const createdRecord = asRecord(created);
+    const createdItems = Array.isArray(createdRecord.store_transfer_items) ? (createdRecord.store_transfer_items as unknown[]) : [];
+    await writeAuditLog({
+      action: 'TRANSFER_CREATED',
+      objectType: 'store_transfer',
+      objectId: createdRecord.id !== undefined && createdRecord.id !== null ? String(createdRecord.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        fromStoreId: fromStoreIdNum,
+        toStoreId: toStoreIdNum,
+        after: safeTransferSnapshot(created),
+        metadata: {
+          itemCount: parsedItems.length,
+          variantIds: parsedItems.map((item) => item.variantId),
+          quantities: parsedItems.map((item) => item.quantity.toString()),
+          reservedStockChanged: true,
+          transferItemIds: createdItems.map((item) => asRecord(item).id).filter((id) => id !== undefined && id !== null),
+        },
+      },
+    });
+
     return res.status(201).json({ transfer: created });
   } catch (err) {
     next(err);
@@ -276,6 +365,7 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
       return res.status(400).json({ error: 'Invalid createdBy' });
     }
 
+    let dispatchAuditDetails: DispatchAuditDetails | null = null;
     const updated = await prisma.$transaction(async (tx) => {
       const transfer = await tx.store_transfers.findUnique({
         where: { id },
@@ -287,6 +377,15 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
       if (!isAdmin && Number(transfer.from_store_id) !== activeStoreId) {
         return { __forbiddenActiveStore: true };
       }
+
+      const stockMovementIds: string[] = [];
+      dispatchAuditDetails = {
+        before: transfer,
+        items: transfer.store_transfer_items,
+        stockMovementIds,
+        fromStoreId: transfer.from_store_id,
+        toStoreId: transfer.to_store_id,
+      };
 
       for (const item of transfer.store_transfer_items) {
         if (!item.variant_id) throw new Error('Transfer item missing variant_id');
@@ -310,7 +409,7 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
           },
         });
 
-        await tx.stock_movements.create({
+        const movement = await tx.stock_movements.create({
           data: {
             store_id: transfer.from_store_id,
             variant_id: item.variant_id,
@@ -321,6 +420,10 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
             created_by: createdBy,
           },
         });
+        const movementId = asRecord(movement).id;
+        if (movementId !== undefined && movementId !== null) {
+          stockMovementIds.push(String(movementId));
+        }
       }
 
       return tx.store_transfers.update({ where: { id: transfer.id }, data: { status: 'in_transit' } });
@@ -329,6 +432,31 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
     if ('__forbiddenActiveStore' in updated) {
       return res.status(403).json({ error: 'Forbidden: transfer source store does not match active store' });
     }
+
+    const dispatchDetails = dispatchAuditDetails as DispatchAuditDetails | null;
+    const dispatchItems = dispatchDetails?.items ?? [];
+    await writeAuditLog({
+      action: 'TRANSFER_DISPATCHED',
+      objectType: 'store_transfer',
+      objectId: String(asRecord(updated).id ?? id),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        fromStoreId: dispatchDetails?.fromStoreId,
+        toStoreId: dispatchDetails?.toStoreId,
+        transferId: asRecord(updated).id ?? id,
+        before: safeTransferSnapshot(dispatchDetails?.before),
+        after: safeTransferSnapshot(updated),
+        metadata: {
+          ...transferItemMetadata(dispatchItems),
+          stockMovementIds: dispatchDetails?.stockMovementIds ?? [],
+          movementType: 'transfer_out',
+          reasonPresent: reason.length > 0,
+          reasonPreview: reason ? reason.slice(0, 80) : undefined,
+        },
+      },
+    });
 
     return res.status(201).json({ transfer: updated });
   } catch (err) {
@@ -364,6 +492,7 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
       return res.status(400).json({ error: 'items must be non-empty when provided' });
     }
 
+    let receiveAuditDetails: ReceiveAuditDetails | null = null;
     const updated = await prisma.$transaction(async (tx) => {
       const transfer = await tx.store_transfers.findUnique({
         where: { id },
@@ -375,6 +504,17 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
       if (!isAdmin && Number(transfer.to_store_id) !== activeStoreId) {
         return { __forbiddenActiveStore: true };
       }
+
+      const stockMovementIds: string[] = [];
+      const receivedItems: Array<{ variantId: number; receivedQty: string }> = [];
+      receiveAuditDetails = {
+        before: transfer,
+        items: transfer.store_transfer_items,
+        receivedItems,
+        stockMovementIds,
+        fromStoreId: transfer.from_store_id,
+        toStoreId: transfer.to_store_id,
+      };
 
       const reference = referenceId ?? `TR:${transfer.id}`;
 
@@ -415,6 +555,7 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
         if (requestQty.gt(remaining)) throw new Error(`receivedQty exceeds remaining for variant ${it.variantId}`);
 
         if (requestQty.eq(0)) continue;
+        receivedItems.push({ variantId: it.variantId, receivedQty: requestQty.toString() });
 
         // Update received_quantity on transfer item
         await tx.store_transfer_items.update({
@@ -447,7 +588,7 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
           });
         }
 
-        await tx.stock_movements.create({
+        const movement = await tx.stock_movements.create({
           data: {
             store_id: transfer.to_store_id,
             variant_id: it.variantId,
@@ -458,6 +599,10 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
             created_by: createdBy,
           },
         });
+        const movementId = asRecord(movement).id;
+        if (movementId !== undefined && movementId !== null) {
+          stockMovementIds.push(String(movementId));
+        }
       }
 
       const refreshed = await tx.store_transfers.findUnique({
@@ -481,6 +626,32 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
       return res.status(403).json({ error: 'Forbidden: transfer destination store does not match active store' });
     }
 
+    const receiveDetails = receiveAuditDetails as ReceiveAuditDetails | null;
+    const receiveItems = receiveDetails?.items ?? [];
+    await writeAuditLog({
+      action: 'TRANSFER_RECEIVED',
+      objectType: 'store_transfer',
+      objectId: String(asRecord(updated).id ?? id),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        fromStoreId: receiveDetails?.fromStoreId,
+        toStoreId: receiveDetails?.toStoreId,
+        transferId: asRecord(updated).id ?? id,
+        before: safeTransferSnapshot(receiveDetails?.before),
+        after: safeTransferSnapshot(updated),
+        metadata: {
+          ...transferItemMetadata(receiveItems),
+          receivedQuantities: receiveDetails?.receivedItems ?? [],
+          stockMovementIds: receiveDetails?.stockMovementIds ?? [],
+          movementType: 'transfer_in',
+          reasonPresent: reason.length > 0,
+          reasonPreview: reason ? reason.slice(0, 80) : undefined,
+        },
+      },
+    });
+
     return res.status(201).json({ transfer: updated });
   } catch (err) {
     next(err);
@@ -502,6 +673,7 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
     const isAdmin = role.toLowerCase() === 'admin';
     const activeStoreId = Number(req.activeStoreId);
 
+    let cancelAuditDetails: CancelAuditDetails | null = null;
     const updated = await prisma.$transaction(async (tx) => {
       const transfer = await tx.store_transfers.findUnique({
         where: { id },
@@ -513,6 +685,13 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
       if (!isAdmin && Number(transfer.from_store_id) !== activeStoreId) {
         return { __forbiddenActiveStore: true };
       }
+
+      cancelAuditDetails = {
+        before: transfer,
+        items: transfer.store_transfer_items,
+        fromStoreId: transfer.from_store_id,
+        toStoreId: transfer.to_store_id,
+      };
 
       for (const item of transfer.store_transfer_items) {
         if (!item.variant_id) throw new Error('Transfer item missing variant_id');
@@ -537,6 +716,31 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
     if ('__forbiddenActiveStore' in updated) {
       return res.status(403).json({ error: 'Forbidden: transfer source store does not match active store' });
     }
+
+    const cancelDetails = cancelAuditDetails as CancelAuditDetails | null;
+    const cancelItems = cancelDetails?.items ?? [];
+    await writeAuditLog({
+      action: 'TRANSFER_CANCELLED',
+      objectType: 'store_transfer',
+      objectId: String(asRecord(updated).id ?? id),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        fromStoreId: cancelDetails?.fromStoreId,
+        toStoreId: cancelDetails?.toStoreId,
+        transferId: asRecord(updated).id ?? id,
+        before: safeTransferSnapshot(cancelDetails?.before),
+        after: safeTransferSnapshot(updated),
+        metadata: {
+          ...transferItemMetadata(cancelItems),
+          releasedReservedQuantities: cancelItems.map((item: unknown) => ({
+            variantId: asRecord(item).variant_id,
+            quantity: String(asRecord(item).quantity),
+          })),
+        },
+      },
+    });
 
     return res.status(201).json({ transfer: updated });
   } catch (err) {

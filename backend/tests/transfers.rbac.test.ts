@@ -16,8 +16,17 @@ jest.mock('../src/db/prisma', () => {
   };
 });
 
+jest.mock('../src/modules/audit_logs/audit_logs.service', () => ({
+  AuditLogsService: {
+    createLog: jest.fn(),
+  },
+}));
+
 import app from '../src/app';
 import prisma from '../src/db/prisma';
+import { AuditLogsService } from '../src/modules/audit_logs/audit_logs.service';
+
+const auditLogsMock = AuditLogsService as jest.Mocked<typeof AuditLogsService>;
 
 const signToken = (overrides?: Record<string, unknown>) => {
   const payload = {
@@ -174,6 +183,7 @@ describe('Transfer route protection', () => {
 
     expect(res.status).toBe(403);
     expect(prisma.store_transfers.findMany).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('keeps non-admin create with mismatched fromStoreId rejected with existing 403', async () => {
@@ -192,10 +202,99 @@ describe('Transfer route protection', () => {
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: 'Forbidden: fromStoreId must match active store' });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
-  it('allows INVENTORY_STAFF to reach the create handler path', async () => {
+  it('writes TRANSFER_CREATED audit log after successful transfer create', async () => {
+    const token = signToken({ userId: 77, role: 'inventory_staff' });
+
+    (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        stores: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValueOnce({ id: 1 })
+            .mockResolvedValueOnce({ id: 2 }),
+        },
+        inventories: {
+          findFirst: jest.fn(async () => ({
+            id: 20,
+            quantity: new Prisma.Decimal(10),
+            reserved: new Prisma.Decimal(0),
+          })),
+          update: jest.fn(async () => ({ id: 20 })),
+        },
+        store_transfers: {
+          create: jest.fn(async () => ({
+            id: 30,
+            from_store_id: 1,
+            to_store_id: 2,
+            status: 'pending',
+          })),
+          findUnique: jest.fn(async () => ({
+            id: 30,
+            from_store_id: 1,
+            to_store_id: 2,
+            status: 'pending',
+            store_transfer_items: [transferItem],
+          })),
+        },
+        store_transfer_items: {
+          create: jest.fn(async () => transferItem),
+        },
+      };
+      return fn(tx);
+    });
+
+    const res = await request(app)
+      .post('/api/v1/transfers')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'transfer-test-agent')
+      .send({
+        fromStoreId: 1,
+        toStoreId: 2,
+        items: [{ variantId: 10, quantity: 1 }],
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        secret: 'should-not-be-logged',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.transfer).toMatchObject({ id: 30, from_store_id: 1, to_store_id: 2 });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TRANSFER_CREATED',
+        objectType: 'store_transfer',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'transfer-test-agent' }),
+          fromStoreId: 1,
+          toStoreId: 2,
+          after: expect.objectContaining({ id: 30, from_store_id: 1, to_store_id: 2, status: 'pending' }),
+          metadata: expect.objectContaining({
+            itemCount: 1,
+            variantIds: [10],
+            quantities: ['1'],
+            reservedStockChanged: true,
+            transferItemIds: [100],
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('secret');
+  });
+
+  it('keeps transfer create response successful when audit logging rejects', async () => {
     const token = signToken({ role: 'inventory_staff' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
 
     (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
       const tx = {
@@ -247,6 +346,7 @@ describe('Transfer route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.transfer).toMatchObject({ id: 30, from_store_id: 1, to_store_id: 2 });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'TRANSFER_CREATED' }));
   });
 
   it('returns 403 when non-admin active store is not transfer source or destination', async () => {
@@ -346,17 +446,48 @@ describe('Transfer route protection', () => {
   });
 
   it('allows STORE_MANAGER to reach the dispatch handler path', async () => {
-    const token = signToken({ role: 'store_manager' });
+    const token = signToken({ userId: 77, role: 'store_manager' });
     mockDispatchTransaction(1);
 
     const res = await request(app)
       .post('/api/v1/transfers/30/dispatch')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '1')
-      .send({});
+      .set('User-Agent', 'transfer-test-agent')
+      .send({ reason: 'Dispatch to destination', token: 'should-not-be-logged' });
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ transfer: { id: 30, status: 'in_transit' } });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TRANSFER_DISPATCHED',
+        objectType: 'store_transfer',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'transfer-test-agent' }),
+          fromStoreId: 1,
+          toStoreId: 2,
+          transferId: 30,
+          before: expect.objectContaining({ id: 30, status: 'pending', from_store_id: 1, to_store_id: 2 }),
+          after: expect.objectContaining({ id: 30, status: 'in_transit' }),
+          metadata: expect.objectContaining({
+            itemCount: 1,
+            variantIds: [10],
+            quantities: ['2'],
+            stockMovementIds: ['40'],
+            movementType: 'transfer_out',
+            reasonPresent: true,
+            reasonPreview: 'Dispatch to destination',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
   });
 
   it('returns 403 when non-admin dispatches transfer from a different source store', async () => {
@@ -374,6 +505,7 @@ describe('Transfer route protection', () => {
     expect(txMocks.updateInventory).not.toHaveBeenCalled();
     expect(txMocks.createMovement).not.toHaveBeenCalled();
     expect(txMocks.updateTransfer).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('allows non-admin to dispatch transfer from the active source store', async () => {
@@ -410,17 +542,49 @@ describe('Transfer route protection', () => {
   });
 
   it('allows INVENTORY_STAFF to reach the receive handler path', async () => {
-    const token = signToken({ role: 'inventory_staff', storeIds: [1, 2], primaryStoreId: 2 });
+    const token = signToken({ userId: 77, role: 'inventory_staff', storeIds: [1, 2], primaryStoreId: 2 });
     mockReceiveTransaction(2);
 
     const res = await request(app)
       .post('/api/v1/transfers/30/receive')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '2')
-      .send({});
+      .set('User-Agent', 'transfer-test-agent')
+      .send({ reason: 'Received at destination', token: 'should-not-be-logged' });
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ transfer: { id: 30, status: 'completed' } });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TRANSFER_RECEIVED',
+        objectType: 'store_transfer',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'transfer-test-agent' }),
+          fromStoreId: 1,
+          toStoreId: 2,
+          transferId: 30,
+          before: expect.objectContaining({ id: 30, status: 'in_transit', from_store_id: 1, to_store_id: 2 }),
+          after: expect.objectContaining({ id: 30, status: 'completed' }),
+          metadata: expect.objectContaining({
+            itemCount: 1,
+            variantIds: [10],
+            quantities: ['2'],
+            receivedQuantities: [{ variantId: 10, receivedQty: '2' }],
+            stockMovementIds: ['41'],
+            movementType: 'transfer_in',
+            reasonPresent: true,
+            reasonPreview: 'Received at destination',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
   });
 
   it('returns 403 when non-admin receives transfer for a different destination store', async () => {
@@ -440,6 +604,7 @@ describe('Transfer route protection', () => {
     expect(txMocks.createInventory).not.toHaveBeenCalled();
     expect(txMocks.createMovement).not.toHaveBeenCalled();
     expect(txMocks.updateTransfer).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('allows non-admin to receive transfer for the active destination store', async () => {
@@ -478,17 +643,40 @@ describe('Transfer route protection', () => {
   });
 
   it('allows STORE_MANAGER to reach the cancel handler path', async () => {
-    const token = signToken({ role: 'store_manager' });
+    const token = signToken({ userId: 77, role: 'store_manager' });
     mockCancelTransaction(1);
 
     const res = await request(app)
       .post('/api/v1/transfers/30/cancel')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '1')
+      .set('User-Agent', 'transfer-test-agent')
       .send({});
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ transfer: { id: 30, status: 'cancelled' } });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TRANSFER_CANCELLED',
+        objectType: 'store_transfer',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'transfer-test-agent' }),
+          fromStoreId: 1,
+          transferId: 30,
+          before: expect.objectContaining({ id: 30, status: 'pending', from_store_id: 1 }),
+          after: expect.objectContaining({ id: 30, status: 'cancelled' }),
+          metadata: expect.objectContaining({
+            itemCount: 1,
+            variantIds: [10],
+            quantities: ['2'],
+            releasedReservedQuantities: [{ variantId: 10, quantity: '2' }],
+          }),
+        }),
+      }),
+    );
   });
 
   it('returns 403 when non-admin cancels transfer from a different source store', async () => {
@@ -505,6 +693,7 @@ describe('Transfer route protection', () => {
     expect(res.body).toEqual({ error: 'Forbidden: transfer source store does not match active store' });
     expect(txMocks.updateInventory).not.toHaveBeenCalled();
     expect(txMocks.updateTransfer).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('allows non-admin to cancel transfer from the active source store', async () => {
