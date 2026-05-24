@@ -122,20 +122,25 @@ const mockReceiveTransaction = () => {
   });
 };
 
-const mockDeleteTransaction = () => {
+const mockDeleteTransaction = (po = purchaseOrder) => {
+  const deleteMany = jest.fn(async () => ({ count: 0 }));
+  const deleteOrder = jest.fn(async () => po);
+
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       purchase_orders: {
-        findUnique: jest.fn(async () => purchaseOrder),
-        delete: jest.fn(async () => purchaseOrder),
+        findUnique: jest.fn(async () => po),
+        delete: deleteOrder,
       },
       purchase_items: {
-        deleteMany: jest.fn(async () => ({ count: 0 })),
+        deleteMany,
       },
     };
 
     return fn(tx);
   });
+
+  return { deleteMany, deleteOrder };
 };
 
 describe('Orders route protection', () => {
@@ -338,6 +343,64 @@ describe('Orders route protection', () => {
         total_amount: '100',
       }),
     });
+  });
+
+  it('returns 403 when non-admin deletes cross-store draft order', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    const txMocks = mockDeleteTransaction({ ...purchaseOrder, store_id: 2 });
+
+    const res = await request(app)
+      .delete('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: order does not belong to active store' });
+    expect(txMocks.deleteMany).not.toHaveBeenCalled();
+    expect(txMocks.deleteOrder).not.toHaveBeenCalled();
+  });
+
+  it('allows non-admin to delete same-store draft order', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const txMocks = mockDeleteTransaction(purchaseOrder);
+
+    const res = await request(app)
+      .delete('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 1,
+        order_number: 'PO-1',
+        total_amount: '100',
+      }),
+    });
+    expect(txMocks.deleteMany).toHaveBeenCalledWith({ where: { purchase_order_id: 10 } });
+    expect(txMocks.deleteOrder).toHaveBeenCalledWith({ where: { id: 10 } });
+  });
+
+  it('allows ADMIN to delete draft order without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const txMocks = mockDeleteTransaction({ ...purchaseOrder, store_id: 2 });
+
+    const res = await request(app)
+      .delete('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 2,
+        order_number: 'PO-1',
+        total_amount: '100',
+      }),
+    });
+    expect(txMocks.deleteMany).toHaveBeenCalledWith({ where: { purchase_order_id: 10 } });
+    expect(txMocks.deleteOrder).toHaveBeenCalledWith({ where: { id: 10 } });
   });
 
   it('requires active store on status route for non-admin users', async () => {

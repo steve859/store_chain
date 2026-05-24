@@ -94,6 +94,10 @@ router.delete('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderDeleteR
       return res.status(400).json({ error: 'Invalid order id' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+
     const deleted = await prisma.$transaction(async (tx) => {
       const po = await tx.purchase_orders.findUnique({ where: { id }, include: { purchase_items: true } });
       if (!po) {
@@ -102,6 +106,9 @@ router.delete('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderDeleteR
       if (po.status !== 'draft') {
         throw new Error('Only draft orders can be deleted');
       }
+      if (!isAdmin && Number(po.store_id) !== activeStoreId) {
+        return { __forbiddenActiveStore: true };
+      }
 
       await tx.purchase_items.deleteMany({ where: { purchase_order_id: id } });
       return tx.purchase_orders.delete({ where: { id } });
@@ -109,6 +116,10 @@ router.delete('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderDeleteR
 
     if (!deleted) {
       return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if ('__forbiddenActiveStore' in deleted) {
+      return res.status(403).json({ error: 'Forbidden: order does not belong to active store' });
     }
 
     return res.json({ order: deleted });
