@@ -105,6 +105,40 @@ const mockRefundTransaction = () => {
   });
 };
 
+const mockResumeCheckoutTransaction = (invoiceStoreId: number) => {
+  const updateInventory = jest.fn(async () => ({ id: 40 }));
+  const updateInvoice = jest.fn(async () => ({ id: 30 }));
+  const createMovement = jest.fn(async () => ({ id: 50 }));
+
+  (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+    const tx = {
+      invoices: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 30,
+            store_id: invoiceStoreId,
+            created_by: 1,
+            payment_method: null,
+            invoice_items: [{ id: 10, variant_id: 20, quantity: 1 }],
+          })
+          .mockResolvedValueOnce({ id: 30, store_id: invoiceStoreId, invoice_items: [] }),
+        update: updateInvoice,
+      },
+      inventories: {
+        findMany: jest.fn(async () => [{ id: 40, variant_id: 20, quantity: 5, reserved: 1 }]),
+        update: updateInventory,
+      },
+      stock_movements: {
+        create: createMovement,
+      },
+    };
+    return fn(tx);
+  });
+
+  return { updateInventory, updateInvoice, createMovement };
+};
+
 describe('POS route protection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -197,5 +231,42 @@ describe('POS route protection', () => {
 
     expect(res.status).toBe(403);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when resumed held invoice belongs to a different active store', async () => {
+    const token = signToken({ role: 'cashier', storeIds: [1, 2], primaryStoreId: 1 });
+    const txMocks = mockResumeCheckoutTransaction(2);
+
+    const res = await request(app)
+      .post('/api/v1/pos/resume/30/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ paymentMethod: 'cash' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+    expect(txMocks.updateInventory).not.toHaveBeenCalled();
+    expect(txMocks.updateInvoice).not.toHaveBeenCalled();
+    expect(txMocks.createMovement).not.toHaveBeenCalled();
+  });
+
+  it('allows resume checkout to reach existing handler path when invoice store matches active store', async () => {
+    const token = signToken({ role: 'cashier' });
+    const txMocks = mockResumeCheckoutTransaction(1);
+
+    const res = await request(app)
+      .post('/api/v1/pos/resume/30/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ paymentMethod: 'cash' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ invoice: { id: 30, store_id: 1, invoice_items: [] } });
+    expect(txMocks.updateInventory).toHaveBeenCalled();
+    expect(txMocks.updateInvoice).toHaveBeenCalledWith({
+      where: { id: 30 },
+      data: { payment_method: 'cash' },
+    });
+    expect(txMocks.createMovement).toHaveBeenCalled();
   });
 });

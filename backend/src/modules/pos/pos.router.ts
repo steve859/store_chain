@@ -719,6 +719,7 @@ router.post('/resume/:id/checkout', authorizeRoles(posOperationalRoles), async (
   try {
     const invoiceId = Number(req.params.id);
     const { paymentMethod } = req.body ?? {};
+    const activeStoreId = Number(req.activeStoreId);
 
     if (!Number.isFinite(invoiceId) || !paymentMethod) {
       return res.status(400).json({ error: 'Invalid request' });
@@ -732,6 +733,10 @@ router.post('/resume/:id/checkout', authorizeRoles(posOperationalRoles), async (
 
       if (!invoice) {
         return null;
+      }
+
+      if (Number(invoice.store_id) !== activeStoreId) {
+        return { __forbiddenActiveStore: true };
       }
 
       if (invoice.payment_method) {
@@ -805,6 +810,10 @@ router.post('/resume/:id/checkout', authorizeRoles(posOperationalRoles), async (
 
     if (!result) {
       return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    if ('__forbiddenActiveStore' in result) {
+      return res.status(403).json({ error: 'Forbidden: invoice does not belong to active store' });
     }
 
     return res.json({ invoice: result });
