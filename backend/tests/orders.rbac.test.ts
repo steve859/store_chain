@@ -262,6 +262,106 @@ describe('Orders route protection', () => {
     expect(receiveRes.status).toBe(201);
   });
 
+  it('returns 403 when non-admin status-updates cross-store order', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...purchaseOrder, store_id: 2 });
+
+    const res = await request(app)
+      .post('/api/v1/orders/10/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'submitted' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: order does not belong to active store' });
+    expect(prisma.purchase_orders.update).not.toHaveBeenCalled();
+  });
+
+  it('allows non-admin to status-update same-store order', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const updatedOrder = { ...purchaseOrder, status: 'approved' };
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce(purchaseOrder);
+    (prisma.purchase_orders.update as unknown as jest.Mock).mockResolvedValueOnce(updatedOrder);
+
+    const res = await request(app)
+      .post('/api/v1/orders/10/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'approved' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 1,
+        status: 'approved',
+        total_amount: '100',
+      }),
+    });
+    expect(prisma.purchase_orders.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { status: 'approved' } });
+  });
+
+  it('allows ADMIN to status-update without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const updatedOrder = { ...purchaseOrder, store_id: 2, status: 'cancelled' };
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...purchaseOrder, store_id: 2 });
+    (prisma.purchase_orders.update as unknown as jest.Mock).mockResolvedValueOnce(updatedOrder);
+
+    const res = await request(app)
+      .post('/api/v1/orders/10/status')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'cancelled' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 2,
+        status: 'cancelled',
+        total_amount: '100',
+      }),
+    });
+    expect(prisma.purchase_orders.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { status: 'cancelled' } });
+  });
+
+  it('keeps invalid id/status validation before status preload', async () => {
+    const token = signToken({ role: 'store_manager' });
+
+    const invalidIdRes = await request(app)
+      .post('/api/v1/orders/not-a-number/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'submitted' });
+
+    const missingStatusRes = await request(app)
+      .post('/api/v1/orders/10/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({});
+
+    expect(invalidIdRes.status).toBe(400);
+    expect(invalidIdRes.body).toEqual({ error: 'Invalid id/status' });
+    expect(missingStatusRes.status).toBe(400);
+    expect(missingStatusRes.body).toEqual({ error: 'Invalid id/status' });
+    expect(prisma.purchase_orders.findUnique).not.toHaveBeenCalled();
+    expect(prisma.purchase_orders.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps unsupported status validation before status preload', async () => {
+    const token = signToken({ role: 'store_manager' });
+
+    const res = await request(app)
+      .post('/api/v1/orders/10/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'invalid-status' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Unsupported status' });
+    expect(prisma.purchase_orders.findUnique).not.toHaveBeenCalled();
+    expect(prisma.purchase_orders.update).not.toHaveBeenCalled();
+  });
+
   it('allows DISTRICT_MANAGER to read but rejects writes', async () => {
     const token = signToken({ role: 'district_manager' });
 

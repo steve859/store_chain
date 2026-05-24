@@ -298,6 +298,17 @@ router.post('/:id/status', requireActiveStoreUnlessAdmin, authorizeRoles(orderSt
       return res.status(400).json({ error: 'Unsupported status' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const order = await prisma.purchase_orders.findUnique({ where: { id } });
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    if (!isAdmin && Number(order.store_id) !== activeStoreId) {
+      return res.status(403).json({ error: 'Forbidden: order does not belong to active store' });
+    }
+
     const updated = await prisma.purchase_orders.update({ where: { id }, data: { status } });
     return res.json({ order: updated });
   } catch (err) {
