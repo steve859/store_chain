@@ -10,6 +10,12 @@ jest.mock('../src/db/prisma', () => ({
     stores: {
       findMany: jest.fn(),
     },
+    users: {
+      findUnique: jest.fn(),
+    },
+    user_stores: {
+      findMany: jest.fn(),
+    },
   },
 }));
 
@@ -25,9 +31,16 @@ jest.mock('../src/modules/users/users.service', () => ({
   },
 }));
 
+jest.mock('../src/modules/audit_logs/audit_logs.service', () => ({
+  AuditLogsService: {
+    createLog: jest.fn(),
+  },
+}));
+
 import app from '../src/app';
 import prisma from '../src/db/prisma';
 import { UserService } from '../src/modules/users/users.service';
+import { AuditLogsService } from '../src/modules/audit_logs/audit_logs.service';
 
 type PrismaMock = typeof prisma & {
   roles: {
@@ -36,10 +49,17 @@ type PrismaMock = typeof prisma & {
   stores: {
     findMany: jest.Mock;
   };
+  users: {
+    findUnique: jest.Mock;
+  };
+  user_stores: {
+    findMany: jest.Mock;
+  };
 };
 
 const prismaMock = prisma as PrismaMock;
 const userServiceMock = UserService as jest.Mocked<typeof UserService>;
+const auditLogsMock = AuditLogsService as jest.Mocked<typeof AuditLogsService>;
 
 const signToken = (overrides?: Record<string, unknown>) => {
   const payload = {
@@ -128,6 +148,230 @@ describe('Users routes', () => {
       primaryStoreId: 1,
     });
     expect(res.body).toEqual({ stores });
+  });
+
+  it('writes USER_CREATED audit log after successful POST /api/v1/users', async () => {
+    const newUser = {
+      id: 9,
+      username: 'cashier01',
+      email: 'cashier01@example.com',
+      full_name: 'Cashier One',
+      role_id: 4,
+      store_id: 1,
+      is_active: true,
+    };
+    userServiceMock.createUser.mockResolvedValueOnce(
+      newUser as unknown as Awaited<ReturnType<typeof UserService.createUser>>,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'ADMIN' })}`)
+      .set('User-Agent', 'users-test-agent')
+      .send({
+        email: 'cashier01@example.com',
+        password: 'secret-password',
+        roleId: 4,
+        storeIds: [1, 2],
+        primaryStoreId: 1,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual(newUser);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'USER_CREATED',
+        objectType: 'user',
+        objectId: '9',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          targetUser: expect.objectContaining({
+            id: 9,
+            username: 'cashier01',
+            email: 'cashier01@example.com',
+            fullName: 'Cashier One',
+            roleId: 4,
+            storeId: 1,
+            isActive: true,
+          }),
+          metadata: expect.objectContaining({
+            requestedStoreIds: [1, 2],
+            primaryStoreId: 1,
+          }),
+        }),
+      }),
+    );
+    expect(JSON.stringify(auditLogsMock.createLog.mock.calls[0][0])).not.toContain('secret-password');
+  });
+
+  it('writes USER_UPDATED audit log with safe password metadata only', async () => {
+    prismaMock.users.findUnique.mockResolvedValueOnce({
+      id: 7,
+      username: 'cashier01',
+      email: 'old@example.com',
+      full_name: 'Old Name',
+      role_id: 4,
+      store_id: 1,
+      is_active: true,
+      password_hash: 'old-hash',
+    });
+    const updated = {
+      id: 7,
+      username: 'cashier01',
+      email: 'new@example.com',
+      full_name: 'New Name',
+      role_id: 4,
+      store_id: 1,
+      is_active: true,
+    };
+    userServiceMock.updateUser.mockResolvedValueOnce(
+      updated as unknown as Awaited<ReturnType<typeof UserService.updateUser>>,
+    );
+
+    const res = await request(app)
+      .put('/api/v1/users/7')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'ADMIN' })}`)
+      .send({ email: 'new@example.com', name: 'New Name', password: 'new-secret' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(updated);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'USER_UPDATED',
+        objectType: 'user',
+        objectId: '7',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          before: expect.objectContaining({ email: 'old@example.com', fullName: 'Old Name' }),
+          after: expect.objectContaining({ email: 'new@example.com', fullName: 'New Name' }),
+          changedFields: ['email', 'name'],
+          passwordChanged: true,
+        }),
+      }),
+    );
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('new-secret');
+    expect(auditPayload).not.toContain('old-hash');
+    expect(auditPayload).not.toContain('password_hash');
+  });
+
+  it('writes USER_STORE_ASSIGNMENTS_UPDATED audit log after store assignment update', async () => {
+    prismaMock.user_stores.findMany.mockResolvedValueOnce([
+      { store_id: 1, role_id: null, is_primary: true, is_active: true },
+    ]);
+    const stores = [
+      { storeId: 2, roleId: null, isPrimary: true, isActive: true },
+      { storeId: 3, roleId: null, isPrimary: false, isActive: true },
+    ];
+    userServiceMock.setUserStores.mockResolvedValueOnce(
+      stores as unknown as Awaited<ReturnType<typeof UserService.setUserStores>>,
+    );
+
+    const res = await request(app)
+      .put('/api/v1/users/7/stores')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'ADMIN' })}`)
+      .send({ storeIds: [2, 3], primaryStoreId: 2 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ stores });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'USER_STORE_ASSIGNMENTS_UPDATED',
+        objectType: 'user',
+        objectId: '7',
+        userId: 77,
+        payload: expect.objectContaining({
+          before: [{ storeId: 1, roleId: null, isPrimary: true, isActive: true }],
+          after: stores,
+          requestedStoreIds: [2, 3],
+          primaryStoreId: 2,
+        }),
+      }),
+    );
+  });
+
+  it('writes USER_DEACTIVATED audit log after successful DELETE /api/v1/users/:id', async () => {
+    prismaMock.users.findUnique.mockResolvedValueOnce({
+      id: 7,
+      username: 'cashier01',
+      email: 'cashier01@example.com',
+      full_name: 'Cashier One',
+      role_id: 4,
+      store_id: 1,
+      is_active: true,
+      password_hash: 'old-hash',
+    });
+    userServiceMock.deleteUser.mockResolvedValueOnce({
+      id: 7,
+      username: 'cashier01',
+      email: 'cashier01@example.com',
+      full_name: 'Cashier One',
+      role_id: 4,
+      store_id: 1,
+      is_active: false,
+    } as unknown as Awaited<ReturnType<typeof UserService.deleteUser>>);
+
+    const res = await request(app)
+      .delete('/api/v1/users/7')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'ADMIN' })}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ message: 'User deleted successfully (Soft Delete)' });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'USER_DEACTIVATED',
+        objectType: 'user',
+        objectId: '7',
+        userId: 77,
+        payload: expect.objectContaining({
+          before: expect.objectContaining({ isActive: true }),
+          after: expect.objectContaining({ isActive: false }),
+        }),
+      }),
+    );
+  });
+
+  it('does not write success audit log when validation fails', async () => {
+    const res = await request(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${signToken({ role: 'ADMIN' })}`)
+      .send({ email: 'missing-role@example.com', password: 'secret' });
+
+    expect(res.status).toBe(400);
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+    expect(userServiceMock.createUser).not.toHaveBeenCalled();
+  });
+
+  it('does not write success audit log when service call fails', async () => {
+    userServiceMock.updateUser.mockRejectedValueOnce(new Error('User not found'));
+
+    const res = await request(app)
+      .put('/api/v1/users/7')
+      .set('Authorization', `Bearer ${signToken({ role: 'ADMIN' })}`)
+      .send({ email: 'new@example.com' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'User not found' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps mutation response successful when audit logging rejects', async () => {
+    const newUser = { id: 9, username: 'cashier01', email: 'cashier01@example.com' };
+    userServiceMock.createUser.mockResolvedValueOnce(
+      newUser as unknown as Awaited<ReturnType<typeof UserService.createUser>>,
+    );
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+
+    const res = await request(app)
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${signToken({ role: 'ADMIN' })}`)
+      .send({ email: 'cashier01@example.com', password: 'secret-password', roleId: 4 });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual(newUser);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'USER_CREATED' }));
   });
 
   it('keeps invalid store assignment response shape for ADMIN', async () => {
