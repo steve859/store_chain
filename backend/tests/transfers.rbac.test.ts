@@ -119,6 +119,32 @@ const mockReceiveTransaction = (toStoreId: number) => {
   return { updateTransferItem, updateInventory, createInventory, createMovement, updateTransfer };
 };
 
+const mockCancelTransaction = (fromStoreId: number) => {
+  const updateInventory = jest.fn(async () => ({ id: 20 }));
+  const updateTransfer = jest.fn(async () => ({ id: 30, status: 'cancelled' }));
+
+  (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+    const tx = {
+      store_transfers: {
+        findUnique: jest.fn(async () => ({
+          id: 30,
+          from_store_id: fromStoreId,
+          status: 'pending',
+          store_transfer_items: [transferItem],
+        })),
+        update: updateTransfer,
+      },
+      inventories: {
+        findFirst: jest.fn(async () => ({ id: 20, reserved: new Prisma.Decimal(2) })),
+        update: updateInventory,
+      },
+    };
+    return fn(tx);
+  });
+
+  return { updateInventory, updateTransfer };
+};
+
 describe('Transfer route protection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -349,25 +375,7 @@ describe('Transfer route protection', () => {
 
   it('allows STORE_MANAGER to reach the cancel handler path', async () => {
     const token = signToken({ role: 'store_manager' });
-
-    (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
-      const tx = {
-        store_transfers: {
-          findUnique: jest.fn(async () => ({
-            id: 30,
-            from_store_id: 1,
-            status: 'pending',
-            store_transfer_items: [transferItem],
-          })),
-          update: jest.fn(async () => ({ id: 30, status: 'cancelled' })),
-        },
-        inventories: {
-          findFirst: jest.fn(async () => ({ id: 20, reserved: new Prisma.Decimal(2) })),
-          update: jest.fn(async () => ({ id: 20 })),
-        },
-      };
-      return fn(tx);
-    });
+    mockCancelTransaction(1);
 
     const res = await request(app)
       .post('/api/v1/transfers/30/cancel')
@@ -377,5 +385,52 @@ describe('Transfer route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ transfer: { id: 30, status: 'cancelled' } });
+  });
+
+  it('returns 403 when non-admin cancels transfer from a different source store', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    const txMocks = mockCancelTransaction(2);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/cancel')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: transfer source store does not match active store' });
+    expect(txMocks.updateInventory).not.toHaveBeenCalled();
+    expect(txMocks.updateTransfer).not.toHaveBeenCalled();
+  });
+
+  it('allows non-admin to cancel transfer from the active source store', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const txMocks = mockCancelTransaction(1);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/cancel')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({});
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ transfer: { id: 30, status: 'cancelled' } });
+    expect(txMocks.updateInventory).toHaveBeenCalled();
+    expect(txMocks.updateTransfer).toHaveBeenCalledWith({ where: { id: 30 }, data: { status: 'cancelled' } });
+  });
+
+  it('allows ADMIN to cancel transfer without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const txMocks = mockCancelTransaction(2);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/cancel')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ transfer: { id: 30, status: 'cancelled' } });
+    expect(txMocks.updateInventory).toHaveBeenCalled();
+    expect(txMocks.updateTransfer).toHaveBeenCalledWith({ where: { id: 30 }, data: { status: 'cancelled' } });
   });
 });

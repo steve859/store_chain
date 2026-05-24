@@ -489,6 +489,10 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
       return res.status(400).json({ error: 'Invalid transfer id' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+
     const updated = await prisma.$transaction(async (tx) => {
       const transfer = await tx.store_transfers.findUnique({
         where: { id },
@@ -497,6 +501,9 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
       if (!transfer) throw new Error('Transfer not found');
       if (!transfer.from_store_id) throw new Error('Transfer missing from_store_id');
       if (transfer.status !== 'pending') throw new Error('Only pending transfers can be cancelled');
+      if (!isAdmin && Number(transfer.from_store_id) !== activeStoreId) {
+        return { __forbiddenActiveStore: true };
+      }
 
       for (const item of transfer.store_transfer_items) {
         if (!item.variant_id) throw new Error('Transfer item missing variant_id');
@@ -517,6 +524,10 @@ router.post('/:id/cancel', requireActiveStoreUnlessAdmin, authorizeRoles(transfe
 
       return tx.store_transfers.update({ where: { id: transfer.id }, data: { status: 'cancelled' } });
     });
+
+    if ('__forbiddenActiveStore' in updated) {
+      return res.status(403).json({ error: 'Forbidden: transfer source store does not match active store' });
+    }
 
     return res.status(201).json({ transfer: updated });
   } catch (err) {
