@@ -23,8 +23,17 @@ jest.mock('../src/db/prisma', () => {
   };
 });
 
+jest.mock('../src/modules/audit_logs/audit_logs.service', () => ({
+  AuditLogsService: {
+    createLog: jest.fn(),
+  },
+}));
+
 import app from '../src/app';
 import prisma from '../src/db/prisma';
+import { AuditLogsService } from '../src/modules/audit_logs/audit_logs.service';
+
+const auditLogsMock = AuditLogsService as jest.Mocked<typeof AuditLogsService>;
 
 const signToken = (overrides?: Record<string, unknown>) => {
   const payload = {
@@ -391,6 +400,79 @@ describe('POS route protection', () => {
     expect(res.body).toEqual({ refund: { invoiceId: 30, totalRefund: 100 } });
   });
 
+  it('writes POS_REFUND_CREATED audit log after successful legacy POS refund', async () => {
+    const token = signToken({ userId: 77, role: 'store_manager' });
+    mockRefundTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'pos-test-agent')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+        reason: 'Customer returned unopened item',
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        cardNumber: '4111111111111111',
+        customerPhone: '555-0100',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ refund: { invoiceId: 30, totalRefund: 100 } });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'POS_REFUND_CREATED',
+        objectType: 'invoice',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'pos-test-agent' }),
+          storeId: 1,
+          invoiceId: 30,
+          effectiveCashierId: 77,
+          refund: {
+            totalRefund: 100,
+            itemCount: 1,
+          },
+          metadata: expect.objectContaining({
+            itemIds: [10],
+            variantIds: [20],
+            quantities: [1],
+            reasonPresent: true,
+            reasonPreview: 'Customer returned unopened item',
+          }),
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('4111111111111111');
+    expect(auditPayload).not.toContain('555-0100');
+  });
+
+  it('keeps legacy POS refund response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'store_manager' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+    mockRefundTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ refund: { invoiceId: 30, totalRefund: 100 } });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'POS_REFUND_CREATED' }));
+  });
+
   it('returns 403 when legacy POS refund invoice belongs to a different store', async () => {
     const token = signToken({ role: 'store_manager' });
     mockRefundTransaction({ invoice: { id: 30, store_id: 2 } });
@@ -405,6 +487,7 @@ describe('POS route protection', () => {
 
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: 'Invoice does not belong to this store' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
   });
 
   it('returns 404 when legacy POS refund invoice item is missing', async () => {

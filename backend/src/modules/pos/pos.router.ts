@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -11,6 +12,27 @@ router.use(requireActiveStore);
 
 const posOperationalRoles = ['ADMIN', 'STORE_MANAGER', 'CASHIER', 'admin', 'manager', 'store_manager', 'cashier'];
 const posRefundRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
 
 const toNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -828,6 +850,7 @@ router.post('/resume/:id/checkout', authorizeRoles(posOperationalRoles), async (
 router.post('/refund', authorizeRoles(posRefundRoles), async (req, res, next) => {
   try {
     type RefundErrorResult = { __error: true; status: number; body: { error: string } };
+    type RefundAuditDetails = { invoiceId: number; itemIds: number[]; variantIds: number[]; quantities: number[]; itemCount: number };
     const isRefundErrorResult = (value: unknown): value is RefundErrorResult =>
       Boolean(value && typeof value === 'object' && '__error' in value);
 
@@ -852,6 +875,7 @@ router.post('/refund', authorizeRoles(posRefundRoles), async (req, res, next) =>
       return res.status(400).json({ error: 'Invalid items' });
     }
 
+    let refundAuditDetails: RefundAuditDetails | null = null;
     const refundResult = await prisma.$transaction(async (tx) => {
       const invoiceItems = await tx.invoice_items.findMany({
         where: { id: { in: parsedItems.map((i) => i.invoiceItemId) } },
@@ -923,6 +947,14 @@ router.post('/refund', authorizeRoles(posRefundRoles), async (req, res, next) =>
         });
       }
 
+      refundAuditDetails = {
+        invoiceId,
+        itemIds: parsedItems.map((item) => item.invoiceItemId),
+        variantIds: invoiceItems.map((item) => item.variant_id).filter((variantId): variantId is number => typeof variantId === 'number'),
+        quantities: parsedItems.map((item) => item.quantity),
+        itemCount: parsedItems.length,
+      };
+
       return {
         invoiceId,
         totalRefund,
@@ -932,6 +964,33 @@ router.post('/refund', authorizeRoles(posRefundRoles), async (req, res, next) =>
     if (isRefundErrorResult(refundResult)) {
       return res.status(refundResult.status).json(refundResult.body);
     }
+
+    const reasonText = reason ? String(reason) : '';
+    const auditDetails = refundAuditDetails as RefundAuditDetails | null;
+    await writeAuditLog({
+      action: 'POS_REFUND_CREATED',
+      objectType: 'invoice',
+      objectId: auditDetails?.invoiceId !== undefined ? String(auditDetails.invoiceId) : String(refundResult.invoiceId),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        invoiceId: auditDetails?.invoiceId ?? refundResult.invoiceId,
+        effectiveCashierId: cashierId,
+        refund: {
+          totalRefund: refundResult.totalRefund,
+          itemCount: auditDetails?.itemCount ?? parsedItems.length,
+        },
+        metadata: {
+          itemIds: auditDetails?.itemIds ?? parsedItems.map((item) => item.invoiceItemId),
+          variantIds: auditDetails?.variantIds ?? [],
+          quantities: auditDetails?.quantities ?? parsedItems.map((item) => item.quantity),
+          reasonPresent: reasonText.length > 0,
+          reasonPreview: reasonText ? reasonText.slice(0, 80) : undefined,
+        },
+      },
+    });
 
     return res.status(201).json({ refund: refundResult });
   } catch (err) {
