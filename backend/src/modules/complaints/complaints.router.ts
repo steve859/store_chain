@@ -181,8 +181,10 @@ router.patch('/:id/status', authorizeRoles(complaintStatusRoles), async (req, re
     const isAdmin = role.toLowerCase() === 'admin';
     const activeStoreId = Number(req.activeStoreId);
     const complaintStoreId = existing?.storeId !== undefined && existing?.storeId !== null ? Number(existing.storeId) : NaN;
-    if (!isAdmin && Number.isFinite(activeStoreId) && Number.isFinite(complaintStoreId) && complaintStoreId !== activeStoreId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isAdmin) {
+      if (!Number.isFinite(activeStoreId) || !Number.isFinite(complaintStoreId) || complaintStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     const updated = await ComplaintsService.updateStatus(id, normalizedStatus as any, adminNote ?? null);
@@ -209,8 +211,10 @@ router.delete('/:id', authorizeRoles(complaintDeleteRoles), async (req, res, nex
     const isAdmin = role.toLowerCase() === 'admin';
     const activeStoreId = Number(req.activeStoreId);
     const complaintStoreId = existing?.storeId !== undefined && existing?.storeId !== null ? Number(existing.storeId) : NaN;
-    if (!isAdmin && Number.isFinite(activeStoreId) && Number.isFinite(complaintStoreId) && complaintStoreId !== activeStoreId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isAdmin) {
+      if (!Number.isFinite(activeStoreId) || !Number.isFinite(complaintStoreId) || complaintStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     const ok = await ComplaintsService.remove(id);

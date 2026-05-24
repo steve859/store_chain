@@ -174,6 +174,36 @@ describe('Complaints route protection', () => {
     expect(ComplaintsService.updateStatus).toHaveBeenCalledWith('CPL-000001', 'Đang xử lý', null);
   });
 
+  it('keeps invalid complaint status rejected with existing 400 response', async () => {
+    const token = signToken({ role: 'store_manager' });
+
+    const res = await request(app)
+      .patch('/api/v1/complaints/CPL-000001/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'not-valid' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid status. Allowed:');
+    expect(ComplaintsService.get).not.toHaveBeenCalled();
+    expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps missing complaint status update returned as 404', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .patch('/api/v1/complaints/CPL-404/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Complaint not found' });
+    expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
+  });
+
   it('rejects CASHIER from updating status or deleting complaints', async () => {
     const token = signToken({ role: 'cashier' });
 
@@ -312,7 +342,6 @@ describe('Complaints route protection', () => {
       .set('x-store-id', '1')
       .send({ status: 'processing' });
 
-    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({ ...complaint, storeId: 2 });
     const deleteAsManagerRes = await request(app)
       .delete('/api/v1/complaints/CPL-000002')
       .set('Authorization', `Bearer ${managerToken}`)
@@ -328,5 +357,117 @@ describe('Complaints route protection', () => {
     expect(deleteAsAdminRes.status).toBe(200);
     expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
     expect(ComplaintsService.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects STORE_MANAGER status update when complaint storeId is null, missing, or invalid', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1], primaryStoreId: 1 });
+    const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
+    delete complaintWithoutStoreId.storeId;
+
+    (ComplaintsService.get as unknown as jest.Mock)
+      .mockResolvedValueOnce({ ...complaint, storeId: null })
+      .mockResolvedValueOnce(complaintWithoutStoreId)
+      .mockResolvedValueOnce({ ...complaint, storeId: 'abc' });
+
+    const nullRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000001/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    const missingRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000002/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    const invalidRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000003/status')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({ status: 'processing' });
+
+    expect(nullRes.status).toBe(403);
+    expect(nullRes.body).toEqual({ error: 'Forbidden' });
+    expect(missingRes.status).toBe(403);
+    expect(missingRes.body).toEqual({ error: 'Forbidden' });
+    expect(invalidRes.status).toBe(403);
+    expect(invalidRes.body).toEqual({ error: 'Forbidden' });
+    expect(ComplaintsService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('allows ADMIN status update when complaint storeId is null, missing, or invalid', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
+    delete complaintWithoutStoreId.storeId;
+
+    (ComplaintsService.get as unknown as jest.Mock)
+      .mockResolvedValueOnce({ ...complaint, storeId: null })
+      .mockResolvedValueOnce(complaintWithoutStoreId)
+      .mockResolvedValueOnce({ ...complaint, storeId: 'abc' });
+
+    const nullRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000001/status')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'processing' });
+
+    const missingRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000002/status')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'processing' });
+
+    const invalidRes = await request(app)
+      .patch('/api/v1/complaints/CPL-000003/status')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'processing' });
+
+    expect(nullRes.status).toBe(200);
+    expect(missingRes.status).toBe(200);
+    expect(invalidRes.status).toBe(200);
+    expect(ComplaintsService.updateStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it('allows ADMIN delete when complaint storeId is null, missing, or invalid', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
+    delete complaintWithoutStoreId.storeId;
+
+    (ComplaintsService.get as unknown as jest.Mock)
+      .mockResolvedValueOnce({ ...complaint, storeId: null })
+      .mockResolvedValueOnce(complaintWithoutStoreId)
+      .mockResolvedValueOnce({ ...complaint, storeId: 'abc' });
+
+    const nullRes = await request(app)
+      .delete('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`);
+
+    const missingRes = await request(app)
+      .delete('/api/v1/complaints/CPL-000002')
+      .set('Authorization', `Bearer ${token}`);
+
+    const invalidRes = await request(app)
+      .delete('/api/v1/complaints/CPL-000003')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(nullRes.status).toBe(200);
+    expect(nullRes.body).toEqual({ message: 'Deleted' });
+    expect(missingRes.status).toBe(200);
+    expect(missingRes.body).toEqual({ message: 'Deleted' });
+    expect(invalidRes.status).toBe(200);
+    expect(invalidRes.body).toEqual({ message: 'Deleted' });
+    expect(ComplaintsService.remove).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps missing complaint delete returned as 404', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .delete('/api/v1/complaints/CPL-404')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Complaint not found' });
+    expect(ComplaintsService.remove).not.toHaveBeenCalled();
   });
 });
