@@ -174,6 +174,36 @@ describe('Suppliers routes', () => {
     expect(res.body).toEqual({ message: 'Access token required' });
   });
 
+  it('rejects CASHIER from reading suppliers', async () => {
+    const res = await request(app)
+      .get('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${signToken({ role: 'cashier' })}`);
+
+    expect(res.status).toBe(403);
+    expect(prismaMock.suppliers.findMany).not.toHaveBeenCalled();
+  });
+
+  it('allows INVENTORY_STAFF to read suppliers', async () => {
+    const supplier = { id: 4, name: 'Inventory Supplier', phone: '456', email: null };
+    prismaMock.suppliers.count.mockResolvedValueOnce(1);
+    prismaMock.suppliers.findMany.mockResolvedValueOnce([supplier]);
+
+    const res = await request(app)
+      .get('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${signToken({ role: 'inventory_staff' })}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      data: [supplier],
+      pagination: {
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+    });
+  });
+
   it('keeps role requirement for create', async () => {
     const res = await request(app)
       .post('/api/v1/suppliers')
@@ -182,5 +212,15 @@ describe('Suppliers routes', () => {
 
     expect(res.status).toBe(403);
     expect(res.body.message).toContain('Forbidden');
+  });
+
+  it('keeps delete role protection unchanged', async () => {
+    const res = await request(app)
+      .delete('/api/v1/suppliers/3')
+      .set('Authorization', `Bearer ${signToken({ role: 'STORE_MANAGER' })}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toContain('Forbidden');
+    expect(prismaMock.suppliers.delete).not.toHaveBeenCalled();
   });
 });

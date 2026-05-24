@@ -5,8 +5,10 @@ import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = Router();
 
-router.get('/', authenticateToken, CategoriesController.getAllCategories);
-router.get('/:id', authenticateToken, CategoriesController.getCategoryById);
+const categoryReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'CASHIER', 'admin', 'district_manager', 'manager', 'store_manager', 'inventory_staff', 'cashier'];
+
+router.get('/', authenticateToken, authorizeRoles(categoryReadRoles), CategoriesController.getAllCategories);
+router.get('/:id', authenticateToken, authorizeRoles(categoryReadRoles), CategoriesController.getCategoryById);
 router.post('/', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER']), CategoriesController.createCategory);
 router.put('/:id', authenticateToken, authorizeRoles(['ADMIN', 'STORE_MANAGER']), CategoriesController.updateCategory);
 router.delete('/:id', authenticateToken, authorizeRoles(['ADMIN']), CategoriesController.deleteCategory);

@@ -93,6 +93,17 @@ describe('Categories routes', () => {
     expect(res.body).toEqual({ message: 'Access token required' });
   });
 
+  it('allows CASHIER to read categories', async () => {
+    prismaMock.products.findMany.mockResolvedValueOnce([{ category: 'Drinks' }]);
+
+    const res = await request(app)
+      .get('/api/v1/categories')
+      .set('Authorization', `Bearer ${signToken({ role: 'cashier' })}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 'Drinks', name: 'Drinks', description: null, productsCount: 1 }]);
+  });
+
   it('keeps unsupported create response behavior', async () => {
     const res = await request(app)
       .post('/api/v1/categories')
@@ -104,5 +115,19 @@ describe('Categories routes', () => {
       error: 'Not supported: categories are derived from products.category',
       status: 200,
     });
+  });
+
+  it('keeps write/delete role protections unchanged', async () => {
+    const createRes = await request(app)
+      .post('/api/v1/categories')
+      .set('Authorization', `Bearer ${signToken({ role: 'CASHIER' })}`)
+      .send({ name: 'New Category' });
+
+    const deleteRes = await request(app)
+      .delete('/api/v1/categories/Drinks')
+      .set('Authorization', `Bearer ${signToken({ role: 'STORE_MANAGER' })}`);
+
+    expect(createRes.status).toBe(403);
+    expect(deleteRes.status).toBe(403);
   });
 });
