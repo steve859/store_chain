@@ -11,6 +11,7 @@ jest.mock('../src/db/prisma', () => {
       },
       invoices: {
         aggregate: jest.fn(),
+        findUnique: jest.fn(),
       },
       cash_movements: {
         aggregate: jest.fn(),
@@ -46,6 +47,35 @@ const mockEmptyShiftSummary = () => {
   (prisma.cash_movements.aggregate as unknown as jest.Mock).mockResolvedValue({
     _sum: { amount: null },
   });
+};
+
+const receiptInvoice = {
+  id: 30,
+  invoice_number: 'INV-30',
+  store_id: 1,
+  created_at: '2026-05-24T00:00:00.000Z',
+  stores: { id: 1, name: 'Store 1' },
+  users: { id: 1, username: 'cashier' },
+  customers: null,
+  invoice_items: [
+    {
+      id: 10,
+      variant_id: 20,
+      quantity: 1,
+      unit_price: 100,
+      line_total: 100,
+      product_variants: {
+        name: 'Variant 1',
+        barcode: '123',
+        products: { name: 'Product 1' },
+      },
+    },
+  ],
+  subtotal: 100,
+  tax: 0,
+  discount: 0,
+  total: 100,
+  payment_method: 'cash',
 };
 
 const mockCheckoutTransaction = () => {
@@ -156,6 +186,7 @@ describe('POS route protection', () => {
     jest.clearAllMocks();
     (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValue(null);
     (prisma.variant_prices.findMany as unknown as jest.Mock).mockResolvedValue([]);
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValue(receiptInvoice);
     mockEmptyShiftSummary();
   });
 
@@ -212,6 +243,136 @@ describe('POS route protection', () => {
 
     expect(res.status).toBe(403);
     expect(prisma.pos_shifts.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('allows same-store POS receipt with unchanged response shape', async () => {
+    const token = signToken({ role: 'cashier' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce(receiptInvoice);
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.invoice).toEqual(receiptInvoice);
+    expect(res.body.receipt).toEqual({
+      invoiceId: 30,
+      invoiceNumber: 'INV-30',
+      createdAt: '2026-05-24T00:00:00.000Z',
+      store: { id: 1, name: 'Store 1' },
+      cashier: { id: 1, username: 'cashier' },
+      customer: null,
+      items: [
+        {
+          id: 10,
+          variantId: 20,
+          name: 'Variant 1',
+          barcode: '123',
+          quantity: 1,
+          unitPrice: 100,
+          lineTotal: 100,
+        },
+      ],
+      subtotal: 100,
+      tax: 0,
+      discount: 0,
+      total: 100,
+      paymentMethod: 'cash',
+    });
+  });
+
+  it('returns 403 when POS receipt invoice belongs to a different active store', async () => {
+    const token = signToken({ role: 'cashier', storeIds: [1, 2], primaryStoreId: 1 });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...receiptInvoice, store_id: 2 });
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+  });
+
+  it('returns 403 when POS receipt invoice store_id is null', async () => {
+    const token = signToken({ role: 'cashier' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...receiptInvoice, store_id: null });
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+  });
+
+  it('returns 403 when POS receipt invoice store_id is missing', async () => {
+    const token = signToken({ role: 'cashier' });
+    const invoiceWithoutStoreId: Record<string, unknown> = { ...receiptInvoice };
+    delete invoiceWithoutStoreId.store_id;
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce(invoiceWithoutStoreId);
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+  });
+
+  it('returns 403 when POS receipt invoice store_id is invalid', async () => {
+    const token = signToken({ role: 'cashier' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...receiptInvoice, store_id: 'abc' });
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+  });
+
+  it('keeps ADMIN scoped to active store for POS receipt', async () => {
+    const token = signToken({ role: 'admin', storeIds: [1], primaryStoreId: 1 });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...receiptInvoice, store_id: 2 });
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: invoice does not belong to active store' });
+  });
+
+  it('keeps missing POS receipt invoice returned as 404', async () => {
+    const token = signToken({ role: 'cashier' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/30/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Invoice not found' });
+  });
+
+  it('keeps invalid POS receipt invoice id returned as 400', async () => {
+    const token = signToken({ role: 'cashier' });
+
+    const res = await request(app)
+      .get('/api/v1/pos/invoices/not-a-number/receipt')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid invoice id' });
+    expect(prisma.invoices.findUnique).not.toHaveBeenCalled();
   });
 
   it('allows STORE_MANAGER to access legacy POS refund', async () => {

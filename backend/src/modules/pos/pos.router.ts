@@ -410,10 +410,9 @@ router.get('/invoices/:id/receipt', authorizeRoles(posOperationalRoles), async (
       return res.status(404).json({ error: 'Invoice not found' });
     }
 
-    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
-    const isAdmin = role.toLowerCase() === 'admin';
     const activeStoreId = Number(req.activeStoreId);
-    if (!isAdmin && Number.isFinite(activeStoreId) && Number(invoice.store_id) !== activeStoreId) {
+    const invoiceStoreId = invoice.store_id !== undefined && invoice.store_id !== null ? Number(invoice.store_id) : NaN;
+    if (!Number.isFinite(activeStoreId) || !Number.isFinite(invoiceStoreId) || invoiceStoreId !== activeStoreId) {
       return res.status(403).json({ error: 'Forbidden: invoice does not belong to active store' });
     }
 
