@@ -34,6 +34,21 @@ const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLo
   }
 };
 
+const safeInvoiceSnapshot = (invoice: unknown) => {
+  const row = asRecord(invoice);
+  return {
+    id: row.id,
+    store_id: row.store_id,
+    created_by: row.created_by,
+    payment_method: row.payment_method,
+    subtotal: row.subtotal,
+    discount: row.discount,
+    tax: row.tax,
+    total: row.total,
+    created_at: row.created_at,
+  };
+};
+
 const toNumber = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') return null;
   const num = typeof value === 'number' ? value : Number(value);
@@ -671,6 +686,27 @@ router.post('/checkout', authorizeRoles(posOperationalRoles), async (req, res, n
         where: { id: createdInvoice.id },
         include: { invoice_items: true },
       });
+    });
+
+    const invoiceRecord = asRecord(invoice);
+    await writeAuditLog({
+      action: 'POS_CHECKOUT_COMPLETED',
+      objectType: 'invoice',
+      objectId: invoiceRecord.id !== undefined && invoiceRecord.id !== null ? String(invoiceRecord.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        invoiceId: invoiceRecord.id,
+        after: safeInvoiceSnapshot(invoice),
+        metadata: {
+          itemCount: parsedItems.length,
+          variantIds: parsedItems.map((item) => item.variantId),
+          quantities: parsedItems.map((item) => item.quantity),
+          stockMovementType: 'sale',
+        },
+      },
     });
 
     return res.status(201).json({ invoice });

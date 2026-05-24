@@ -104,7 +104,18 @@ const mockCheckoutTransaction = () => {
       },
       invoices: {
         create: jest.fn(async () => ({ id: 30 })),
-        findUnique: jest.fn(async () => ({ id: 30, store_id: 1, invoice_items: [] })),
+        findUnique: jest.fn(async () => ({
+          id: 30,
+          store_id: 1,
+          created_by: 1,
+          payment_method: 'cash',
+          subtotal: 100,
+          discount: 0,
+          tax: 0,
+          total: 100,
+          created_at: new Date('2026-05-24T09:00:00.000Z'),
+          invoice_items: [],
+        })),
       },
       invoice_items: {
         create: jest.fn(async () => ({ id: 40 })),
@@ -263,7 +274,150 @@ describe('POS route protection', () => {
     expect(currentRes.status).toBe(200);
     expect(currentRes.body).toEqual({ shift: null });
     expect(checkoutRes.status).toBe(201);
-    expect(checkoutRes.body).toEqual({ invoice: { id: 30, store_id: 1, invoice_items: [] } });
+    expect(checkoutRes.body).toEqual({
+      invoice: {
+        id: 30,
+        store_id: 1,
+        created_by: 1,
+        payment_method: 'cash',
+        subtotal: 100,
+        discount: 0,
+        tax: 0,
+        total: 100,
+        created_at: '2026-05-24T09:00:00.000Z',
+        invoice_items: [],
+      },
+    });
+  });
+
+  it('writes POS_CHECKOUT_COMPLETED audit log after successful checkout', async () => {
+    const token = signToken({ userId: 77, role: 'cashier' });
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce({ id: 1 });
+    mockCheckoutTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/pos/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'pos-test-agent')
+      .send({
+        paymentMethod: 'cash',
+        items: [{ variantId: 10, quantity: 1 }],
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        cardNumber: '4111111111111111',
+        customerPhone: '555-0100',
+        customer: { email: 'customer@example.com', phone: '555-0100' },
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      invoice: {
+        id: 30,
+        store_id: 1,
+        created_by: 1,
+        payment_method: 'cash',
+        subtotal: 100,
+        discount: 0,
+        tax: 0,
+        total: 100,
+        created_at: '2026-05-24T09:00:00.000Z',
+        invoice_items: [],
+      },
+    });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'POS_CHECKOUT_COMPLETED',
+        objectType: 'invoice',
+        objectId: '30',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'pos-test-agent' }),
+          storeId: 1,
+          invoiceId: 30,
+          after: expect.objectContaining({
+            id: 30,
+            store_id: 1,
+            created_by: 1,
+            payment_method: 'cash',
+            subtotal: 100,
+            discount: 0,
+            tax: 0,
+            total: 100,
+          }),
+          metadata: {
+            itemCount: 1,
+            variantIds: [10],
+            quantities: [1],
+            stockMovementType: 'sale',
+          },
+        }),
+      }),
+    );
+
+    const auditPayload = JSON.stringify(auditLogsMock.createLog.mock.calls[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('4111111111111111');
+    expect(auditPayload).not.toContain('555-0100');
+    expect(auditPayload).not.toContain('customer@example.com');
+  });
+
+  it('does not write POS_CHECKOUT_COMPLETED audit log when checkout validation fails', async () => {
+    const token = signToken({ role: 'cashier' });
+
+    const res = await request(app)
+      .post('/api/v1/pos/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        paymentMethod: 'cash',
+        items: [],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Missing required fields' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('does not write POS_CHECKOUT_COMPLETED audit log when no shift is open', async () => {
+    const token = signToken({ role: 'cashier' });
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/v1/pos/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        paymentMethod: 'cash',
+        items: [{ variantId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'No open shift. Please open shift before checkout.' });
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps checkout response successful when audit logging rejects', async () => {
+    const token = signToken({ role: 'cashier' });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+    (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValueOnce({ id: 1 });
+    mockCheckoutTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/pos/checkout')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        paymentMethod: 'cash',
+        items: [{ variantId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.invoice.id).toBe(30);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'POS_CHECKOUT_COMPLETED' }));
   });
 
   it('rejects INVENTORY_STAFF from POS routes', async () => {
