@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '@prisma/client'
 import { authenticateToken } from '../../middlewares/auth.middleware';
@@ -6,6 +6,7 @@ import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 import { cacheCatalogResponse } from '../../middlewares/catalogCache.middleware';
 import { invalidateCatalogCache } from '../../lib/cache/catalog';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -15,6 +16,41 @@ const productReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTO
 const catalogReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'CASHIER', 'admin', 'manager', 'store_manager', 'inventory_staff', 'cashier'];
 const productWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
 const variantPriceRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const safeVariantPriceSnapshot = (price: unknown) => {
+  if (!price) return null;
+  const row = asRecord(price);
+  return {
+    id: row.id !== undefined && row.id !== null ? String(row.id) : undefined,
+    storeId: row.store_id ?? row.storeId,
+    variantId: row.variant_id ?? row.variantId,
+    price: row.price,
+    startAt: row.start_at ?? row.startAt,
+    endAt: row.end_at ?? row.endAt ?? null,
+    createdBy: row.created_by ?? row.createdBy ?? null,
+  };
+};
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -202,6 +238,7 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRo
       return res.status(400).json({ error: 'variantId is required' });
     }
 
+    let closedPriorWindow: boolean | 'unknown' = 'unknown';
     const created = await prisma.$transaction(async (tx) => {
       const variant = await tx.product_variants.findUnique({ where: { id: variantId } });
       if (!variant) throw new Error('Variant not found');
@@ -221,7 +258,7 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRo
       }
 
       // Close any currently open window
-      await tx.variant_prices.updateMany({
+      const closed = await tx.variant_prices.updateMany({
         where: {
           store_id: storeId,
           variant_id: variantId,
@@ -230,6 +267,7 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRo
         },
         data: { end_at: startAt },
       });
+      closedPriorWindow = Number(closed.count ?? 0) > 0;
 
       return tx.variant_prices.create({
         data: {
@@ -244,6 +282,24 @@ router.post('/variant-prices', requireActiveStore, authorizeRoles(variantPriceRo
     });
 
     await invalidateCatalogCache(storeId);
+    await writeAuditLog({
+      action: 'VARIANT_PRICE_SET',
+      objectType: 'variant_price',
+      objectId: created?.id !== undefined && created?.id !== null ? String(created.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: safeVariantPriceSnapshot(created),
+        metadata: {
+          variantId,
+          price,
+          startAt,
+          closedPriorWindow,
+        },
+      },
+    });
     return res.status(201).json({ price: created });
   } catch (err) {
     next(err);
@@ -267,6 +323,7 @@ router.post('/variant-prices/close', requireActiveStore, authorizeRoles(variantP
       return res.status(400).json({ error: 'variantId is required' });
     }
 
+    let beforeClose: unknown = null;
     const closed = await prisma.$transaction(async (tx) => {
       const current = await tx.variant_prices.findFirst({
         where: {
@@ -284,6 +341,7 @@ router.post('/variant-prices/close', requireActiveStore, authorizeRoles(variantP
       if (current.start_at >= endAt) {
         throw new Error('endAt must be after startAt');
       }
+      beforeClose = current;
 
       const updated = await tx.variant_prices.update({
         where: { id: current.id },
@@ -294,6 +352,23 @@ router.post('/variant-prices/close', requireActiveStore, authorizeRoles(variantP
     });
 
     await invalidateCatalogCache(storeId);
+    await writeAuditLog({
+      action: 'VARIANT_PRICE_CLOSED',
+      objectType: 'variant_price',
+      objectId: closed?.id !== undefined && closed?.id !== null ? String(closed.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        before: safeVariantPriceSnapshot(beforeClose),
+        after: safeVariantPriceSnapshot(closed),
+        metadata: {
+          variantId,
+          endAt,
+        },
+      },
+    });
     return res.json({ price: closed });
   } catch (err) {
     next(err);
