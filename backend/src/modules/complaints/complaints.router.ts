@@ -48,7 +48,12 @@ router.get('/my', authorizeRoles(complaintSubmitRoles), async (req, res, next) =
 
     const take = req.query.take ? Number(req.query.take) : 200;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
-    const result = await ComplaintsService.list({ employeeName, take, skip });
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    const storeId = !isAdmin && Number.isFinite(activeStoreId) ? activeStoreId : undefined;
+
+    const result = await ComplaintsService.list({ employeeName, storeId, take, skip });
     res.json(result);
   } catch (err) {
     next(err);

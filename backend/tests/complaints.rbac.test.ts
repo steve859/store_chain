@@ -101,7 +101,53 @@ describe('Complaints route protection', () => {
         storeId: '1',
       }),
     );
-    expect(ComplaintsService.list).toHaveBeenCalledWith(expect.objectContaining({ employeeName: 'cashier' }));
+    expect(ComplaintsService.list).toHaveBeenCalledWith(expect.objectContaining({ employeeName: 'cashier', storeId: 1 }));
+  });
+
+  it('filters /my complaints by active store for non-admin users', async () => {
+    const token = signToken({ role: 'cashier' });
+
+    const res = await request(app)
+      .get('/api/v1/complaints/my?employeeName=cashier&take=25&skip=5')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(ComplaintsService.list).toHaveBeenCalledWith({
+      employeeName: 'cashier',
+      storeId: 1,
+      take: 25,
+      skip: 5,
+    });
+  });
+
+  it('does not add active store filter to /my complaints for ADMIN', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+
+    const res = await request(app)
+      .get('/api/v1/complaints/my?employeeName=cashier')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(ComplaintsService.list).toHaveBeenCalledWith({
+      employeeName: 'cashier',
+      storeId: undefined,
+      take: 200,
+      skip: 0,
+    });
+  });
+
+  it('keeps /my missing employeeName rejected with 400', async () => {
+    const token = signToken({ role: 'cashier' });
+
+    const res = await request(app)
+      .get('/api/v1/complaints/my')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'employeeName is required' });
+    expect(ComplaintsService.list).not.toHaveBeenCalled();
   });
 
   it('rejects CASHIER from listing all complaints', async () => {
