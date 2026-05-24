@@ -288,6 +288,58 @@ describe('Orders route protection', () => {
     expect(receiveRes.status).toBe(403);
   });
 
+  it('returns 403 when non-admin reads cross-store order detail', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...purchaseOrder, store_id: 2 });
+
+    const res = await request(app)
+      .get('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: order does not belong to active store' });
+  });
+
+  it('allows non-admin to read same-store order detail', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce(purchaseOrder);
+
+    const res = await request(app)
+      .get('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 1,
+        order_number: 'PO-1',
+        total_amount: '100',
+      }),
+    });
+  });
+
+  it('allows ADMIN to read order detail without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    (prisma.purchase_orders.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...purchaseOrder, store_id: 2 });
+
+    const res = await request(app)
+      .get('/api/v1/orders/10')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      order: expect.objectContaining({
+        id: 10,
+        store_id: 2,
+        order_number: 'PO-1',
+        total_amount: '100',
+      }),
+    });
+  });
+
   it('requires active store on status route for non-admin users', async () => {
     const token = signToken({ role: 'store_manager', storeIds: [], primaryStoreId: null });
 

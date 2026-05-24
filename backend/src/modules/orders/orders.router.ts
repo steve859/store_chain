@@ -150,6 +150,13 @@ router.get('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderReadRoles)
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+    if (!isAdmin && Number(order.store_id) !== activeStoreId) {
+      return res.status(403).json({ error: 'Forbidden: order does not belong to active store' });
+    }
+
     return res.json({ order });
   } catch (err) {
     next(err);
