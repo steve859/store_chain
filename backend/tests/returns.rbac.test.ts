@@ -59,17 +59,22 @@ const invoice = {
   users: null,
 };
 
-const mockStandardReturnTransaction = () => {
+const mockStandardReturnTransaction = (overrides?: {
+  invoice?: typeof invoice | null;
+  invoiceItems?: Array<typeof invoiceItem>;
+  returnedAgg?: Array<{ invoice_item_id: number; _sum: { quantity: Prisma.Decimal | null } }>;
+  inventory?: { id: number; quantity: Prisma.Decimal } | null;
+}) => {
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       invoices: {
-        findUnique: jest.fn(async () => invoice),
+        findUnique: jest.fn(async () => (overrides && 'invoice' in overrides ? overrides.invoice : invoice)),
       },
       invoice_items: {
-        findMany: jest.fn(async () => [invoiceItem]),
+        findMany: jest.fn(async () => overrides?.invoiceItems ?? [invoiceItem]),
       },
       return_items: {
-        groupBy: jest.fn(async () => []),
+        groupBy: jest.fn(async () => overrides?.returnedAgg ?? []),
         create: jest.fn(async () => ({ id: 101 })),
       },
       returns: {
@@ -90,7 +95,7 @@ const mockStandardReturnTransaction = () => {
         })),
       },
       inventories: {
-        findFirst: jest.fn(async () => ({ id: 30, quantity: new Prisma.Decimal(5) })),
+        findFirst: jest.fn(async () => (overrides && 'inventory' in overrides ? overrides.inventory : { id: 30, quantity: new Prisma.Decimal(5) })),
         update: jest.fn(async () => ({ id: 30 })),
       },
       stock_movements: {
@@ -193,6 +198,163 @@ describe('Returns route protection', () => {
         restock: true,
       }),
     );
+  });
+
+  it('returns 400 when standard return has invalid decimal quantity', async () => {
+    const token = signToken({ role: 'cashier' });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 'not-a-number' }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid items payload' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when standard return invoice belongs to a different store', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({ invoice: { ...invoice, store_id: 2 } });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Invoice does not belong to this store' });
+  });
+
+  it('returns 404 when standard return invoice is missing', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({ invoice: null });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Invoice not found' });
+  });
+
+  it('returns 404 when standard return invoice item is missing', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({ invoiceItems: [] });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'One or more invoice items not found' });
+  });
+
+  it('returns 400 when standard return item belongs to a different invoice', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({ invoiceItems: [{ ...invoiceItem, invoice_id: 2 }] });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'All items must belong to the same invoice' });
+  });
+
+  it('returns 409 when standard return item is already fully returned', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({
+      returnedAgg: [{ invoice_item_id: 10, _sum: { quantity: new Prisma.Decimal(2) } }],
+    });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Invoice item 10 already fully returned' });
+  });
+
+  it('returns 409 when standard return quantity exceeds remaining quantity', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 3 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Return quantity exceeds remaining for invoice item 10' });
+  });
+
+  it('returns 403 when CASHIER standard return exceeds large refund threshold', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({
+      invoiceItems: [{ ...invoiceItem, quantity: new Prisma.Decimal(1000), unit_price: new Prisma.Decimal(1000) }],
+    });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 600 }],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Large refund requires manager/admin approval' });
+  });
+
+  it('returns 409 when standard return inventory is missing', async () => {
+    const token = signToken({ role: 'cashier' });
+    mockStandardReturnTransaction({ inventory: null });
+
+    const res = await request(app)
+      .post('/api/v1/returns')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        invoiceId: 1,
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Inventory not found for variant 20' });
   });
 
   it('allows CASHIER to list return history', async () => {

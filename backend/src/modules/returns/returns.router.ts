@@ -169,6 +169,10 @@ router.get('/invoices/:id', authorizeRoles(invoiceLookupRoles), async (req, res,
  */
 router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
   try {
+    type ReturnErrorResult = { __error: true; status: number; body: { error: string } };
+    const isReturnErrorResult = (value: unknown): value is ReturnErrorResult =>
+      Boolean(value && typeof value === 'object' && '__error' in value);
+
     const storeId = Number(req.activeStoreId);
     const createdByFromToken = req.user && typeof req.user === 'object' ? Number((req.user as any).userId) : null;
     const createdBy = Number.isFinite(createdByFromToken) ? createdByFromToken : null;
@@ -185,13 +189,18 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
       return res.status(400).json({ error: 'invoiceId and non-empty items are required' });
     }
 
-    const parsedItems: Array<{ invoiceItemId: number; quantity: Prisma.Decimal; reason: string | null }> = bodyItems
-      .map((it: any) => ({
-        invoiceItemId: Number(it?.invoiceItemId),
-        quantity: toDecimal(it?.quantity),
-        reason: it?.reason ? String(it.reason) : null,
-      }))
-      .filter((it) => Number.isFinite(it.invoiceItemId) && it.quantity.gt(0));
+    let parsedItems: Array<{ invoiceItemId: number; quantity: Prisma.Decimal; reason: string | null }>;
+    try {
+      parsedItems = bodyItems
+        .map((it: any) => ({
+          invoiceItemId: Number(it?.invoiceItemId),
+          quantity: toDecimal(it?.quantity),
+          reason: it?.reason ? String(it.reason) : null,
+        }))
+        .filter((it) => Number.isFinite(it.invoiceItemId) && it.quantity.gt(0));
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid items payload' });
+    }
 
     if (parsedItems.length !== bodyItems.length) {
       return res.status(400).json({ error: 'Invalid items payload' });
@@ -202,14 +211,20 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
         where: { id: invoiceId },
         include: { invoice_items: true, customers: true },
       });
-      if (!invoice) throw new Error('Invoice not found');
-      if (Number(invoice.store_id) !== Number(storeId)) throw new Error('Invoice does not belong to this store');
+      if (!invoice) return { __error: true, status: 404, body: { error: 'Invoice not found' } };
+      if (Number(invoice.store_id) !== Number(storeId)) {
+        return { __error: true, status: 403, body: { error: 'Invoice does not belong to this store' } };
+      }
 
       const invoiceItems = await tx.invoice_items.findMany({
         where: { id: { in: parsedItems.map((i) => i.invoiceItemId) } },
       });
-      if (invoiceItems.length !== parsedItems.length) throw new Error('One or more invoice items not found');
-      if (invoiceItems.some((it) => it.invoice_id !== invoiceId)) throw new Error('All items must belong to the same invoice');
+      if (invoiceItems.length !== parsedItems.length) {
+        return { __error: true, status: 404, body: { error: 'One or more invoice items not found' } };
+      }
+      if (invoiceItems.some((it) => it.invoice_id !== invoiceId)) {
+        return { __error: true, status: 400, body: { error: 'All items must belong to the same invoice' } };
+      }
 
       const invoiceItemIds = invoiceItems.map((it) => it.id);
       const returnedAgg = await tx.return_items.groupBy({
@@ -243,13 +258,19 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
 
       for (const reqItem of parsedItems) {
         const invItem = invoiceItems.find((x) => x.id === reqItem.invoiceItemId)!;
-        if (!invItem.variant_id) throw new Error(`Invoice item ${invItem.id} missing variant_id`);
+        if (!invItem.variant_id) {
+          return { __error: true, status: 409, body: { error: `Invoice item ${invItem.id} missing variant_id` } };
+        }
 
         const soldQty = invItem.quantity ?? new Prisma.Decimal(0);
         const returnedQty = returnedByInvoiceItemId.get(invItem.id) ?? new Prisma.Decimal(0);
         const remaining = soldQty.sub(returnedQty);
-        if (remaining.lte(0)) throw new Error(`Invoice item ${invItem.id} already fully returned`);
-        if (reqItem.quantity.gt(remaining)) throw new Error(`Return quantity exceeds remaining for invoice item ${invItem.id}`);
+        if (remaining.lte(0)) {
+          return { __error: true, status: 409, body: { error: `Invoice item ${invItem.id} already fully returned` } };
+        }
+        if (reqItem.quantity.gt(remaining)) {
+          return { __error: true, status: 409, body: { error: `Return quantity exceeds remaining for invoice item ${invItem.id}` } };
+        }
 
         const unitPrice = invItem.unit_price ?? new Prisma.Decimal(0);
         const refundAmount = unitPrice.mul(reqItem.quantity);
@@ -270,7 +291,18 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
       if (totalRefund.gt(approvalThreshold)) {
         const allowed = ['admin', 'manager', 'store_manager'];
         if (!allowed.includes(role)) {
-          throw new Error('Large refund requires manager/admin approval');
+          return { __error: true, status: 403, body: { error: 'Large refund requires manager/admin approval' } };
+        }
+      }
+
+      const inventoryByVariantId = new Map<number, { id: number }>();
+      if (restock) {
+        for (const row of itemRows) {
+          const inventory = await tx.inventories.findFirst({ where: { store_id: storeId, variant_id: row.variantId } });
+          if (!inventory) {
+            return { __error: true, status: 409, body: { error: `Inventory not found for variant ${row.variantId}` } };
+          }
+          inventoryByVariantId.set(row.variantId, inventory);
         }
       }
 
@@ -308,8 +340,10 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
         });
 
         if (restock) {
-          const inventory = await tx.inventories.findFirst({ where: { store_id: storeId, variant_id: row.variantId } });
-          if (!inventory) throw new Error(`Inventory not found for variant ${row.variantId}`);
+          const inventory = inventoryByVariantId.get(row.variantId);
+          if (!inventory) {
+            return { __error: true, status: 409, body: { error: `Inventory not found for variant ${row.variantId}` } };
+          }
 
           await tx.inventories.update({
             where: { id: inventory.id },
@@ -370,6 +404,10 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
 
       return { return: full, returnNumber, totalRefund, restock };
     });
+
+    if (isReturnErrorResult(result)) {
+      return res.status(result.status).json(result.body);
+    }
 
     return res.status(201).json(result);
   } catch (err) {
