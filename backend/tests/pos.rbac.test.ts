@@ -76,25 +76,37 @@ const mockCheckoutTransaction = () => {
   });
 };
 
-const mockRefundTransaction = () => {
+const mockRefundTransaction = (overrides?: {
+  invoiceItems?: Array<{
+    id: number;
+    invoice_id: number | null;
+    variant_id: number | null;
+    quantity: number;
+    unit_price: number;
+  }>;
+  invoice?: { id: number; store_id: number } | null;
+  inventory?: { id: number; quantity: number } | null;
+}) => {
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       invoice_items: {
-        findMany: jest.fn(async () => [
-          {
-            id: 10,
-            invoice_id: 30,
-            variant_id: 20,
-            quantity: 2,
-            unit_price: 100,
-          },
-        ]),
+        findMany: jest.fn(async () =>
+          overrides?.invoiceItems ?? [
+            {
+              id: 10,
+              invoice_id: 30,
+              variant_id: 20,
+              quantity: 2,
+              unit_price: 100,
+            },
+          ],
+        ),
       },
       invoices: {
-        findUnique: jest.fn(async () => ({ id: 30, store_id: 1 })),
+        findUnique: jest.fn(async () => (overrides && 'invoice' in overrides ? overrides.invoice : { id: 30, store_id: 1 })),
       },
       inventories: {
-        findFirst: jest.fn(async () => ({ id: 40, quantity: 5 })),
+        findFirst: jest.fn(async () => (overrides && 'inventory' in overrides ? overrides.inventory : { id: 40, quantity: 5 })),
         update: jest.fn(async () => ({ id: 40 })),
       },
       stock_movements: {
@@ -216,6 +228,94 @@ describe('POS route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ refund: { invoiceId: 30, totalRefund: 100 } });
+  });
+
+  it('returns 403 when legacy POS refund invoice belongs to a different store', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockRefundTransaction({ invoice: { id: 30, store_id: 2 } });
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Invoice does not belong to this store' });
+  });
+
+  it('returns 404 when legacy POS refund invoice item is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockRefundTransaction({ invoiceItems: [] });
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'One or more invoice items not found' });
+  });
+
+  it('returns 400 when legacy POS refund items belong to different invoices', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockRefundTransaction({
+      invoiceItems: [
+        { id: 10, invoice_id: 30, variant_id: 20, quantity: 2, unit_price: 100 },
+        { id: 11, invoice_id: 31, variant_id: 21, quantity: 2, unit_price: 100 },
+      ],
+    });
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [
+          { invoiceItemId: 10, quantity: 1 },
+          { invoiceItemId: 11, quantity: 1 },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Refund items must belong to the same invoice' });
+  });
+
+  it('returns 409 when legacy POS refund quantity exceeds sold quantity', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockRefundTransaction();
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 3 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Refund quantity exceeds sold quantity for invoice item 10' });
+  });
+
+  it('returns 409 when legacy POS refund inventory is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    mockRefundTransaction({ inventory: null });
+
+    const res = await request(app)
+      .post('/api/v1/pos/refund')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'Inventory not found for variant 20' });
   });
 
   it('rejects CASHIER from legacy POS refund', async () => {
