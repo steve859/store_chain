@@ -2,12 +2,19 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
+import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 import { invalidateCatalogCache } from '../../lib/cache/catalog';
 
 const router = Router();
 
 router.use(authenticateToken);
+
+const orderReadRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'district_manager', 'manager', 'store_manager', 'inventory_staff'];
+const orderCreateRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
+const orderDeleteRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+const orderStatusRoles = ['ADMIN', 'STORE_MANAGER', 'admin', 'manager', 'store_manager'];
+const orderReceiveRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'manager', 'store_manager', 'inventory_staff'];
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -34,7 +41,7 @@ const generateReceiptNumber = (): string => {
  * UC-M3: Purchase order list
  * GET /api/v1/orders?storeId=1&status=draft&take=50&skip=0&q=po-2026
  */
-router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/', requireActiveStoreUnlessAdmin, authorizeRoles(orderReadRoles), async (req, res, next) => {
   try {
     const storeId = req.activeStoreId ?? undefined;
     const status = req.query.status ? String(req.query.status) : undefined;
@@ -80,7 +87,7 @@ router.get('/', requireActiveStoreUnlessAdmin, async (req, res, next) => {
  * UC-M3: Delete draft purchase order
  * DELETE /api/v1/orders/:id
  */
-router.delete('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.delete('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderDeleteRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -114,7 +121,7 @@ router.delete('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
  * UC-M3: Purchase order details
  * GET /api/v1/orders/:id
  */
-router.get('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.get('/:id', requireActiveStoreUnlessAdmin, authorizeRoles(orderReadRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -161,7 +168,7 @@ router.get('/:id', requireActiveStoreUnlessAdmin, async (req, res, next) => {
  *   items: Array<{ variantId: number, quantity: number, unitCost: number }>
  * }
  */
-router.post('/', requireActiveStore, async (req, res, next) => {
+router.post('/', requireActiveStore, authorizeRoles(orderCreateRoles), async (req, res, next) => {
   try {
     const { supplierId, createdBy, orderNumber, items } = req.body ?? {};
     const storeIdNum = Number(req.activeStoreId);
@@ -260,7 +267,7 @@ router.post('/', requireActiveStore, async (req, res, next) => {
  * POST /api/v1/orders/:id/status
  * Body: { status: 'draft'|'submitted'|'approved'|'cancelled'|'received', updatedBy?: number }
  */
-router.post('/:id/status', async (req, res, next) => {
+router.post('/:id/status', requireActiveStoreUnlessAdmin, authorizeRoles(orderStatusRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const status = String(req.body?.status ?? '').trim();
@@ -291,7 +298,7 @@ router.post('/:id/status', async (req, res, next) => {
  *   items?: Array<{ variantId: number, receivedQty: number, unitCost?: number, lotCode?: string, expiryDate?: string }>
  * }
  */
-router.post('/:id/receive', requireActiveStoreUnlessAdmin, async (req, res, next) => {
+router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(orderReceiveRoles), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
