@@ -207,6 +207,100 @@ describe('Complaints route protection', () => {
     expect(res.body).toEqual({ error: 'Forbidden' });
   });
 
+  it('allows non-admin same-store complaint detail', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce(complaint);
+
+    const res = await request(app)
+      .get('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(complaint);
+  });
+
+  it('rejects non-admin complaint detail when storeId is null', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({ ...complaint, storeId: null });
+
+    const res = await request(app)
+      .get('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('rejects non-admin complaint detail when storeId is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
+    delete complaintWithoutStoreId.storeId;
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce(complaintWithoutStoreId);
+
+    const res = await request(app)
+      .get('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('rejects non-admin complaint detail when storeId is invalid', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce({ ...complaint, storeId: 'abc' });
+
+    const res = await request(app)
+      .get('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('allows ADMIN complaint detail when storeId is missing, null, or invalid', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const complaintWithoutStoreId: Record<string, unknown> = { ...complaint };
+    delete complaintWithoutStoreId.storeId;
+
+    (ComplaintsService.get as unknown as jest.Mock)
+      .mockResolvedValueOnce({ ...complaint, storeId: null })
+      .mockResolvedValueOnce(complaintWithoutStoreId)
+      .mockResolvedValueOnce({ ...complaint, storeId: 'abc' });
+
+    const nullRes = await request(app)
+      .get('/api/v1/complaints/CPL-000001')
+      .set('Authorization', `Bearer ${token}`);
+
+    const missingRes = await request(app)
+      .get('/api/v1/complaints/CPL-000002')
+      .set('Authorization', `Bearer ${token}`);
+
+    const invalidRes = await request(app)
+      .get('/api/v1/complaints/CPL-000003')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(nullRes.status).toBe(200);
+    expect(missingRes.status).toBe(200);
+    expect(invalidRes.status).toBe(200);
+  });
+
+  it('keeps missing complaint detail returned as 404', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (ComplaintsService.get as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .get('/api/v1/complaints/CPL-404')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Complaint not found' });
+  });
+
   it('keeps cross-store status and delete checks rejected with 403 for allowed roles', async () => {
     const managerToken = signToken({ role: 'store_manager', storeIds: [1], primaryStoreId: 1 });
     const adminToken = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });

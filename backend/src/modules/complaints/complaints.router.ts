@@ -73,8 +73,10 @@ router.get('/:id', authorizeRoles(complaintDetailRoles), async (req, res, next) 
     const isAdmin = role.toLowerCase() === 'admin';
     const activeStoreId = Number(req.activeStoreId);
     const complaintStoreId = complaint?.storeId !== undefined && complaint?.storeId !== null ? Number(complaint.storeId) : NaN;
-    if (!isAdmin && Number.isFinite(activeStoreId) && Number.isFinite(complaintStoreId) && complaintStoreId !== activeStoreId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!isAdmin) {
+      if (!Number.isFinite(activeStoreId) || !Number.isFinite(complaintStoreId) || complaintStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     res.json(complaint);
