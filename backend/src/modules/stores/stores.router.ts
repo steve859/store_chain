@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '@prisma/client'
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -10,6 +11,58 @@ const readStoreRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER'];
 const writeStoreRoles = ['ADMIN', 'DISTRICT_MANAGER'];
 
 router.use(authenticateToken);
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const safeStoreSnapshot = (store: unknown) => {
+  if (!store) return null;
+  const row = asRecord(store);
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    timezone: row.timezone,
+    is_active: row.is_active,
+    created_at: row.created_at,
+  };
+};
+
+const storePresenceMetadata = (store: unknown) => {
+  const row = asRecord(store);
+  return {
+    addressPresent: row.address !== undefined && row.address !== null && String(row.address).trim() !== '',
+    phonePresent: row.phone !== undefined && row.phone !== null && String(row.phone).trim() !== '',
+  };
+};
+
+const changedFields = (before: unknown, after: unknown) => {
+  const beforeRow = asRecord(before);
+  const afterRow = asRecord(after);
+  return ['code', 'name', 'address', 'phone', 'timezone', 'is_active'].filter((field) => {
+    const beforeValue = beforeRow[field] === undefined || beforeRow[field] === null ? null : String(beforeRow[field]);
+    const afterValue = afterRow[field] === undefined || afterRow[field] === null ? null : String(afterRow[field]);
+    return beforeValue !== afterValue;
+  });
+};
 
 const buildNextStoreCode = async (): Promise<string> => {
   const result = await prisma.stores.aggregate({
@@ -235,6 +288,19 @@ router.post('/', authorizeRoles(writeStoreRoles), async (req, res, next) => {
       },
     });
 
+    await writeAuditLog({
+      action: 'STORE_CREATED',
+      objectType: 'store',
+      objectId: String(created.id),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        after: safeStoreSnapshot(created),
+        metadata: storePresenceMetadata(created),
+      },
+    });
+
     return res.status(201).json({ store: created });
   } catch (err) {
     next(err);
@@ -261,9 +327,27 @@ router.put('/:id', authorizeRoles(writeStoreRoles), async (req, res, next) => {
     if (body.timezone !== undefined) data.timezone = body.timezone === null || String(body.timezone).trim() === '' ? null : String(body.timezone);
     if (body.isActive !== undefined) data.is_active = Boolean(body.isActive);
 
+    const before = await prisma.stores.findUnique({ where: { id: storeId } });
     const updated = await prisma.stores.update({
       where: { id: storeId },
       data,
+    });
+
+    await writeAuditLog({
+      action: 'STORE_UPDATED',
+      objectType: 'store',
+      objectId: String(storeId),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        before: safeStoreSnapshot(before),
+        after: safeStoreSnapshot(updated),
+        metadata: {
+          ...storePresenceMetadata(updated),
+          changedFields: changedFields(before, updated),
+        },
+      },
     });
 
     return res.json({ store: updated });
@@ -283,9 +367,27 @@ router.delete('/:id', authorizeRoles(writeStoreRoles), async (req, res, next) =>
       return res.status(400).json({ error: 'Invalid store id' });
     }
 
+    const before = await prisma.stores.findUnique({ where: { id: storeId } });
     const updated = await prisma.stores.update({
       where: { id: storeId },
       data: { is_active: false },
+    });
+
+    await writeAuditLog({
+      action: 'STORE_DEACTIVATED',
+      objectType: 'store',
+      objectId: String(storeId),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        before: safeStoreSnapshot(before),
+        after: safeStoreSnapshot(updated),
+        metadata: {
+          previousIsActive: asRecord(before).is_active,
+          newIsActive: asRecord(updated).is_active,
+        },
+      },
     });
 
     return res.json({ store: updated });
