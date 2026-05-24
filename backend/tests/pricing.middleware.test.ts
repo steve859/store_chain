@@ -46,8 +46,25 @@ describe('Pricing middleware baseline', () => {
     expect(pricingServiceMock.calculateRecommendedPrice).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for authenticated users without RBAC role on protected writes', async () => {
+  it('returns 400 before RBAC when authenticated request has no active store', async () => {
     const res = await request(app)
+      .get('/api/v1/pricing/recommend')
+      .set('Authorization', `Bearer ${signToken({ role: 'manager', storeIds: [], primaryStoreId: null })}`)
+      .query({ currentPrice: 10 });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'storeId is required (active store not resolved)' });
+    expect(pricingServiceMock.calculateRecommendedPrice).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for CASHIER on pricing reads and writes', async () => {
+    const readRes = await request(app)
+      .get('/api/v1/pricing/recommend')
+      .set('Authorization', `Bearer ${signToken({ role: 'cashier' })}`)
+      .set('x-store-id', '1')
+      .query({ currentPrice: 10 });
+
+    const writeRes = await request(app)
       .post('/api/v1/pricing/rules')
       .set('Authorization', `Bearer ${signToken({ role: 'cashier' })}`)
       .set('x-store-id', '1')
@@ -58,12 +75,87 @@ describe('Pricing middleware baseline', () => {
         effectiveFrom: new Date().toISOString(),
       });
 
-    expect(res.status).toBe(403);
-    expect(res.body.message).toContain('Forbidden');
+    expect(readRes.status).toBe(403);
+    expect(writeRes.status).toBe(403);
+    expect(readRes.body.message).toContain('Forbidden');
+    expect(writeRes.body.message).toContain('Forbidden');
+    expect(pricingServiceMock.calculateRecommendedPrice).not.toHaveBeenCalled();
     expect(pricingServiceMock.createPricingRule).not.toHaveBeenCalled();
   });
 
-  it('allows an authenticated allowed role to reach the existing handler path', async () => {
+  it('returns 403 for INVENTORY_STAFF on pricing routes', async () => {
+    const readRes = await request(app)
+      .get('/api/v1/pricing/history/1')
+      .set('Authorization', `Bearer ${signToken({ role: 'inventory_staff' })}`)
+      .set('x-store-id', '1');
+
+    const writeRes = await request(app)
+      .post('/api/v1/pricing/competitor-prices')
+      .set('Authorization', `Bearer ${signToken({ role: 'inventory_staff' })}`)
+      .set('x-store-id', '1')
+      .send({
+        productSku: 'SKU-1',
+        competitorName: 'Competitor',
+        competitorPrice: 10,
+        ourPrice: 11,
+      });
+
+    expect(readRes.status).toBe(403);
+    expect(writeRes.status).toBe(403);
+    expect(pricingServiceMock.getPricingHistory).not.toHaveBeenCalled();
+    expect(pricingServiceMock.recordCompetitorPrice).not.toHaveBeenCalled();
+  });
+
+  it('allows DISTRICT_MANAGER to reach read and write handler paths', async () => {
+    pricingServiceMock.getCompetitivePricingReport.mockResolvedValueOnce({
+      totalProducts: 0,
+      competitiveProducts: 0,
+      competitivePercentage: 0,
+      avgPriceDifference: 0,
+      report: [],
+    });
+    pricingServiceMock.updateDemandMetrics.mockResolvedValueOnce({
+      demandLevel: 75,
+      inventoryLevel: 50,
+      lastCalculated: new Date('2026-05-24T00:00:00.000Z'),
+    });
+
+    const readRes = await request(app)
+      .get('/api/v1/pricing/competitors')
+      .set('Authorization', `Bearer ${signToken({ role: 'district_manager' })}`)
+      .set('x-store-id', '1');
+
+    const writeRes = await request(app)
+      .post('/api/v1/pricing/demand-metrics')
+      .set('Authorization', `Bearer ${signToken({ role: 'district_manager' })}`)
+      .set('x-store-id', '1')
+      .send({
+        dayOfWeek: 3,
+        demandLevel: 75,
+        inventoryLevel: 50,
+      });
+
+    expect(readRes.status).toBe(200);
+    expect(writeRes.status).toBe(200);
+    expect(pricingServiceMock.getCompetitivePricingReport).toHaveBeenCalledWith(1);
+    expect(pricingServiceMock.updateDemandMetrics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 1,
+        dayOfWeek: 3,
+        demandLevel: 75,
+        inventoryLevel: 50,
+      }),
+    );
+  });
+
+  it('allows STORE_MANAGER or legacy manager to reach existing handler paths', async () => {
+    pricingServiceMock.calculateRecommendedPrice.mockResolvedValueOnce({
+      currentPrice: 10,
+      recommendedPrice: 10,
+      priceChangePercent: 0,
+      appliedRules: [],
+      reason: 'No pricing rules applied',
+    });
     pricingServiceMock.createPricingRule.mockResolvedValueOnce({
       id: 'rule-1',
       storeId: 1,
@@ -73,7 +165,13 @@ describe('Pricing middleware baseline', () => {
       isActive: true,
     });
 
-    const res = await request(app)
+    const readRes = await request(app)
+      .get('/api/v1/pricing/recommend')
+      .set('Authorization', `Bearer ${signToken({ role: 'store_manager' })}`)
+      .set('x-store-id', '1')
+      .query({ currentPrice: 10 });
+
+    const writeRes = await request(app)
       .post('/api/v1/pricing/rules')
       .set('Authorization', `Bearer ${signToken({ role: 'manager' })}`)
       .set('x-store-id', '1')
@@ -84,8 +182,9 @@ describe('Pricing middleware baseline', () => {
         effectiveFrom: new Date().toISOString(),
       });
 
-    expect(res.status).toBe(201);
-    expect(res.body).toEqual({
+    expect(readRes.status).toBe(200);
+    expect(writeRes.status).toBe(201);
+    expect(writeRes.body).toEqual({
       message: 'Pricing rule created successfully',
       rule: {
         id: 'rule-1',
@@ -96,6 +195,7 @@ describe('Pricing middleware baseline', () => {
         isActive: true,
       },
     });
+    expect(pricingServiceMock.calculateRecommendedPrice).toHaveBeenCalledWith(1, 10, undefined, undefined, undefined);
     expect(pricingServiceMock.createPricingRule).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId: 1,
