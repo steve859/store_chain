@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import prisma from '../../db/prisma';
 import { Prisma } from '@prisma/client'
 import { authenticateToken } from '../../middlewares/auth.middleware';
@@ -35,6 +35,32 @@ const getOpenShiftId = async (storeId: number): Promise<number | null> => {
   const open = await prisma.pos_shifts.findFirst({ where: { store_id: storeId, status: 'open' }, orderBy: { opened_at: 'desc' } });
   return open?.id ?? null;
 };
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const toAuditScalar = (value: unknown): Prisma.InputJsonValue | null => {
+  if (value === undefined || value === null) return null;
+  if (value instanceof Prisma.Decimal) return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  return String(value);
+};
+
+const safeReturnSnapshot = (row: Record<string, unknown>) => ({
+  id: toAuditScalar(row.id),
+  return_number: toAuditScalar(row.return_number),
+  invoice_id: toAuditScalar(row.invoice_id),
+  store_id: toAuditScalar(row.store_id),
+  customer_id: toAuditScalar(row.customer_id),
+  status: toAuditScalar(row.status),
+  total_refund: toAuditScalar(row.total_refund),
+  created_by: toAuditScalar(row.created_by),
+  created_at: toAuditScalar(row.created_at),
+});
 
 /**
  * UC-M7: List invoices for return/refund lookup
@@ -326,8 +352,10 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
         },
       });
 
+      const returnItemIds: Array<number | string> = [];
+      const stockMovementIds: string[] = [];
       for (const row of itemRows) {
-        await tx.return_items.create({
+        const returnItem = await tx.return_items.create({
           data: {
             return_id: createdReturn.id,
             invoice_item_id: row.invoiceItemId,
@@ -338,6 +366,9 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
             reason: row.reason,
           },
         });
+        if (returnItem?.id !== undefined && returnItem?.id !== null) {
+          returnItemIds.push(returnItem.id);
+        }
 
         if (restock) {
           const inventory = inventoryByVariantId.get(row.variantId);
@@ -350,7 +381,7 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
             data: { quantity: { increment: row.quantity }, last_update: new Date() },
           });
 
-          await tx.stock_movements.create({
+          const movement = await tx.stock_movements.create({
             data: {
               store_id: storeId,
               variant_id: row.variantId,
@@ -361,31 +392,18 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
               created_by: createdBy,
             },
           });
+          if (movement?.id !== undefined && movement?.id !== null) {
+            stockMovementIds.push(movement.id.toString());
+          }
         }
       }
 
-      // Audit log
-      await tx.audit_logs.create({
-        data: {
-          user_id: createdBy ?? undefined,
-          action: 'return_create',
-          object_type: 'return',
-          object_id: String(createdReturn.id),
-          payload: {
-            storeId,
-            invoiceId,
-            returnNumber,
-            totalRefund: totalRefund.toString(),
-            restock,
-            refundMethod,
-          },
-        },
-      });
-
       // Optional cash movement for cash refunds
+      let cashMovementCreated = false;
+      let cashMovementId: string | undefined;
       if (refundMethod === 'cash' && totalRefund.gt(0)) {
         const shiftId = await getOpenShiftId(storeId);
-        await tx.cash_movements.create({
+        const cashMovement = await tx.cash_movements.create({
           data: {
             store_id: storeId,
             shift_id: shiftId,
@@ -395,7 +413,45 @@ router.post('/', authorizeRoles(returnCreateRoles), async (req, res, next) => {
             created_by: createdBy,
           },
         });
+        cashMovementCreated = true;
+        if (cashMovement?.id !== undefined && cashMovement?.id !== null) {
+          cashMovementId = cashMovement.id.toString();
+        }
       }
+
+      await tx.audit_logs.create({
+        data: {
+          user_id: createdBy ?? undefined,
+          action: 'RETURN_CREATED',
+          object_type: 'return',
+          object_id: String(createdReturn.id),
+          payload: {
+            result: 'success',
+            source: getAuditSource(req),
+            storeId,
+            invoiceId,
+            returnId: createdReturn.id,
+            returnNumber,
+            after: safeReturnSnapshot(createdReturn as Record<string, unknown>),
+            metadata: {
+              refundMethod,
+              restock,
+              totalRefund: totalRefund.toString(),
+              itemCount: itemRows.length,
+              invoiceItemIds: itemRows.map((row) => row.invoiceItemId),
+              variantIds: itemRows.map((row) => row.variantId),
+              quantities: itemRows.map((row) => row.quantity.toString()),
+              returnItemIds,
+              stockMovementIds,
+              cashMovementCreated,
+              cashMovementId,
+              reasonPresent: Boolean(reason),
+              reasonPreview: reason ? reason.slice(0, 80) : undefined,
+              notePresent: Boolean(note),
+            },
+          },
+        },
+      });
 
       const full = await tx.returns.findUnique({
         where: { id: createdReturn.id },
@@ -584,17 +640,34 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
         });
       }
 
+      const invoiceItemIds = itemRows.map((row) => row.invoiceItemId);
+      const variantIds = itemRows.map((row) => row.variantId);
+      const quantities = itemRows.map((row) => row.refundQty);
+      const stockMovementIds: string[] = [];
+      const reasonText = reason ? String(reason) : '';
+      const managerRefundAuditPayload = {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId: Number(storeId),
+        invoiceId,
+        metadata: {
+          totalRefund,
+          itemCount: itemRows.length,
+          invoiceItemIds,
+          variantIds,
+          quantities,
+          stockMovementIds,
+          reasonPresent: reasonText.length > 0,
+          reasonPreview: reasonText ? reasonText.slice(0, 80) : undefined,
+        },
+      };
       const audit = await tx.audit_logs.create({
         data: {
           user_id: Number(createdByEffective),
-          action: 'manager_refund',
+          action: 'MANAGER_REFUND_CREATED',
           object_type: 'invoice',
           object_id: String(invoiceId),
-          payload: {
-            storeId: Number(storeId),
-            reason: reason ? String(reason) : null,
-            items: parsedItems,
-          },
+          payload: managerRefundAuditPayload,
         },
       });
 
@@ -608,7 +681,7 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
           },
         });
 
-        await tx.stock_movements.create({
+        const movement = await tx.stock_movements.create({
           data: {
             store_id: Number(storeId),
             variant_id: row.variantId,
@@ -619,7 +692,15 @@ router.post('/refund', authorizeRoles(managerRefundRoles), async (req, res, next
             created_by: Number(createdByEffective),
           },
         });
+        if (movement?.id !== undefined && movement?.id !== null) {
+          stockMovementIds.push(movement.id.toString());
+        }
       }
+
+      await tx.audit_logs.update({
+        where: { id: audit.id },
+        data: { payload: managerRefundAuditPayload },
+      });
 
       return {
         invoiceId,

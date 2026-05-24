@@ -65,6 +65,11 @@ const mockStandardReturnTransaction = (overrides?: {
   returnedAgg?: Array<{ invoice_item_id: number; _sum: { quantity: Prisma.Decimal | null } }>;
   inventory?: { id: number; quantity: Prisma.Decimal } | null;
 }) => {
+  const returnItemCreate = jest.fn(async () => ({ id: 101 }));
+  const stockMovementCreate = jest.fn(async () => ({ id: 40 }));
+  const auditCreate = jest.fn(async () => ({ id: 50 }));
+  const cashMovementCreate = jest.fn(async () => ({ id: 60 }));
+
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       invoices: {
@@ -75,7 +80,7 @@ const mockStandardReturnTransaction = (overrides?: {
       },
       return_items: {
         groupBy: jest.fn(async () => overrides?.returnedAgg ?? []),
-        create: jest.fn(async () => ({ id: 101 })),
+        create: returnItemCreate,
       },
       returns: {
         create: jest.fn(async () => ({
@@ -99,18 +104,19 @@ const mockStandardReturnTransaction = (overrides?: {
         update: jest.fn(async () => ({ id: 30 })),
       },
       stock_movements: {
-        create: jest.fn(async () => ({ id: 40 })),
+        create: stockMovementCreate,
       },
       audit_logs: {
-        create: jest.fn(async () => ({ id: 50 })),
+        create: auditCreate,
       },
       cash_movements: {
-        create: jest.fn(async () => ({ id: 60 })),
+        create: cashMovementCreate,
       },
     };
     return fn(tx);
   });
   (prisma.pos_shifts.findFirst as unknown as jest.Mock).mockResolvedValue({ id: 70 });
+  return { returnItemCreate, stockMovementCreate, auditCreate, cashMovementCreate };
 };
 
 const mockManagerRefundTransaction = (overrides?: {
@@ -118,6 +124,10 @@ const mockManagerRefundTransaction = (overrides?: {
   invoice?: { id: number; store_id: number } | null;
   inventory?: { id: number; quantity: Prisma.Decimal } | null;
 }) => {
+  const auditCreate = jest.fn(async () => ({ id: 80 }));
+  const auditUpdate = jest.fn(async () => ({ id: 80 }));
+  const stockMovementCreate = jest.fn(async () => ({ id: 40 }));
+
   (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
     const tx = {
       invoice_items: {
@@ -127,18 +137,20 @@ const mockManagerRefundTransaction = (overrides?: {
         findUnique: jest.fn(async () => (overrides && 'invoice' in overrides ? overrides.invoice : { id: 1, store_id: 1 })),
       },
       audit_logs: {
-        create: jest.fn(async () => ({ id: 80 })),
+        create: auditCreate,
+        update: auditUpdate,
       },
       inventories: {
         findFirst: jest.fn(async () => (overrides && 'inventory' in overrides ? overrides.inventory : { id: 30, quantity: new Prisma.Decimal(5) })),
         update: jest.fn(async () => ({ id: 30 })),
       },
       stock_movements: {
-        create: jest.fn(async () => ({ id: 40 })),
+        create: stockMovementCreate,
       },
     };
     return fn(tx);
   });
+  return { auditCreate, auditUpdate, stockMovementCreate };
 };
 
 describe('Returns route protection', () => {
@@ -181,18 +193,24 @@ describe('Returns route protection', () => {
   });
 
   it('allows CASHIER to create a standard return', async () => {
-    const token = signToken({ role: 'cashier' });
-    mockStandardReturnTransaction();
+    const token = signToken({ userId: 77, role: 'cashier' });
+    const txMocks = mockStandardReturnTransaction();
 
     const res = await request(app)
       .post('/api/v1/returns')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '1')
+      .set('User-Agent', 'returns-test-agent')
       .send({
         invoiceId: 1,
         refundMethod: 'cash',
         restock: true,
+        reason: 'Damaged item',
+        note: 'Counter return',
         items: [{ invoiceItemId: 10, quantity: 1 }],
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        secret: 'should-not-be-logged',
       });
 
     expect(res.status).toBe(201);
@@ -202,6 +220,52 @@ describe('Returns route protection', () => {
         restock: true,
       }),
     );
+    expect(txMocks.auditCreate).toHaveBeenCalledTimes(1);
+    expect(txMocks.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        user_id: 77,
+        action: 'RETURN_CREATED',
+        object_type: 'return',
+        object_id: '100',
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'returns-test-agent' }),
+          storeId: 1,
+          invoiceId: 1,
+          returnId: 100,
+          returnNumber: expect.any(String),
+          after: expect.objectContaining({
+            id: 100,
+            return_number: 'RTN-1',
+            invoice_id: 1,
+            store_id: 1,
+            total_refund: '1000',
+          }),
+          metadata: expect.objectContaining({
+            refundMethod: 'cash',
+            restock: true,
+            totalRefund: '1000',
+            itemCount: 1,
+            invoiceItemIds: [10],
+            variantIds: [20],
+            quantities: ['1'],
+            returnItemIds: [101],
+            stockMovementIds: ['40'],
+            cashMovementCreated: true,
+            cashMovementId: '60',
+            reasonPresent: true,
+            reasonPreview: 'Damaged item',
+            notePresent: true,
+          }),
+        }),
+      }),
+    });
+
+    const auditPayload = JSON.stringify((txMocks.auditCreate.mock.calls as Array<Array<unknown>>)[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('secret');
   });
 
   it('returns 400 when standard return has invalid decimal quantity', async () => {
@@ -223,7 +287,7 @@ describe('Returns route protection', () => {
 
   it('returns 403 when standard return invoice belongs to a different store', async () => {
     const token = signToken({ role: 'cashier' });
-    mockStandardReturnTransaction({ invoice: { ...invoice, store_id: 2 } });
+    const txMocks = mockStandardReturnTransaction({ invoice: { ...invoice, store_id: 2 } });
 
     const res = await request(app)
       .post('/api/v1/returns')
@@ -236,6 +300,7 @@ describe('Returns route protection', () => {
 
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: 'Invoice does not belong to this store' });
+    expect(txMocks.auditCreate).not.toHaveBeenCalled();
   });
 
   it('returns 404 when standard return invoice is missing', async () => {
@@ -407,17 +472,68 @@ describe('Returns route protection', () => {
   });
 
   it('allows STORE_MANAGER to call legacy manager refund', async () => {
-    const token = signToken({ role: 'store_manager' });
-    mockManagerRefundTransaction();
+    const token = signToken({ userId: 88, role: 'store_manager' });
+    const txMocks = mockManagerRefundTransaction();
 
     const res = await request(app)
       .post('/api/v1/returns/refund')
       .set('Authorization', `Bearer ${token}`)
       .set('x-store-id', '1')
-      .send({ items: [{ invoiceItemId: 10, quantity: 1 }] });
+      .set('User-Agent', 'returns-test-agent')
+      .send({
+        items: [{ invoiceItemId: 10, quantity: 1 }],
+        reason: 'Manager approved refund',
+        token: 'should-not-be-logged',
+        password: 'should-not-be-logged',
+        secret: 'should-not-be-logged',
+      });
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ refund: { invoiceId: 1, totalRefund: 1000, auditLogId: '80' } });
+    expect(txMocks.auditCreate).toHaveBeenCalledTimes(1);
+    expect(txMocks.auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        user_id: 88,
+        action: 'MANAGER_REFUND_CREATED',
+        object_type: 'invoice',
+        object_id: '1',
+        payload: expect.objectContaining({
+          result: 'success',
+          source: expect.objectContaining({ userAgent: 'returns-test-agent' }),
+          storeId: 1,
+          invoiceId: 1,
+          metadata: expect.objectContaining({
+            totalRefund: 1000,
+            itemCount: 1,
+            invoiceItemIds: [10],
+            variantIds: [20],
+            quantities: [1],
+            stockMovementIds: ['40'],
+            reasonPresent: true,
+            reasonPreview: 'Manager approved refund',
+          }),
+        }),
+      }),
+    });
+    expect(txMocks.auditUpdate).toHaveBeenCalledWith({
+      where: { id: 80 },
+      data: {
+        payload: expect.objectContaining({
+          metadata: expect.objectContaining({ stockMovementIds: ['40'] }),
+        }),
+      },
+    });
+    expect(txMocks.stockMovementCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        reference_id: 'audit:80',
+      }),
+    });
+
+    const auditPayload = JSON.stringify((txMocks.auditUpdate.mock.calls as Array<Array<unknown>>)[0][0]);
+    expect(auditPayload).not.toContain('should-not-be-logged');
+    expect(auditPayload).not.toContain('token');
+    expect(auditPayload).not.toContain('password');
+    expect(auditPayload).not.toContain('secret');
   });
 
   it('returns 403 when legacy manager refund invoice belongs to a different store', async () => {
