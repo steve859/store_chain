@@ -12,10 +12,18 @@ jest.mock('../src/modules/pricing/pricing.service', () => ({
   },
 }));
 
+jest.mock('../src/modules/audit_logs/audit_logs.service', () => ({
+  AuditLogsService: {
+    createLog: jest.fn(),
+  },
+}));
+
 import app from '../src/app';
 import { pricingService } from '../src/modules/pricing/pricing.service';
+import { AuditLogsService } from '../src/modules/audit_logs/audit_logs.service';
 
 const pricingServiceMock = pricingService as jest.Mocked<typeof pricingService>;
+const auditLogsMock = AuditLogsService as jest.Mocked<typeof AuditLogsService>;
 
 const signToken = (overrides?: Record<string, unknown>) => {
   const payload = {
@@ -204,5 +212,220 @@ describe('Pricing middleware baseline', () => {
         basePrice: 10,
       }),
     );
+  });
+
+  it('writes PRICING_RULE_CREATED audit log after successful pricing rule creation', async () => {
+    pricingServiceMock.createPricingRule.mockResolvedValueOnce({
+      id: 'rule-audit-1',
+      storeId: 1,
+      ruleName: 'Audited Rule',
+      ruleType: 'fixed',
+      basePrice: 10,
+      isActive: true,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/pricing/rules')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'admin' })}`)
+      .set('x-store-id', '1')
+      .set('User-Agent', 'pricing-test-agent')
+      .send({
+        ruleName: 'Audited Rule',
+        ruleType: 'fixed',
+        basePrice: 10,
+        minPrice: 8,
+        maxPrice: 12,
+        priority: 4,
+        effectiveFrom: '2026-05-24T00:00:00.000Z',
+        effectiveUntil: '2026-05-25T00:00:00.000Z',
+        token: 'should-not-be-logged',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({
+      message: 'Pricing rule created successfully',
+      rule: {
+        id: 'rule-audit-1',
+        storeId: 1,
+        ruleName: 'Audited Rule',
+        ruleType: 'fixed',
+        basePrice: 10,
+        isActive: true,
+      },
+    });
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PRICING_RULE_CREATED',
+        objectType: 'pricing_rule',
+        objectId: 'rule-audit-1',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          storeId: 1,
+          source: expect.objectContaining({ userAgent: 'pricing-test-agent' }),
+          after: expect.objectContaining({ id: 'rule-audit-1', ruleName: 'Audited Rule' }),
+          metadata: expect.objectContaining({
+            ruleName: 'Audited Rule',
+            ruleType: 'fixed',
+            priority: 4,
+            effectiveFrom: '2026-05-24T00:00:00.000Z',
+            effectiveUntil: '2026-05-25T00:00:00.000Z',
+            minPrice: 8,
+            maxPrice: 12,
+          }),
+        }),
+      }),
+    );
+    expect(JSON.stringify(auditLogsMock.createLog.mock.calls[0][0])).not.toContain('should-not-be-logged');
+    expect(JSON.stringify(auditLogsMock.createLog.mock.calls[0][0])).not.toContain('token');
+  });
+
+  it('does not write audit log when pricing rule validation fails', async () => {
+    const res = await request(app)
+      .post('/api/v1/pricing/rules')
+      .set('Authorization', `Bearer ${signToken({ role: 'admin' })}`)
+      .set('x-store-id', '1')
+      .send({
+        ruleName: 'Invalid Rule',
+        ruleType: 'invalid_type',
+        basePrice: 10,
+        effectiveFrom: '2026-05-24T00:00:00.000Z',
+      });
+
+    expect(res.status).toBe(400);
+    expect(pricingServiceMock.createPricingRule).not.toHaveBeenCalled();
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('does not write success audit log when pricing service fails', async () => {
+    pricingServiceMock.createPricingRule.mockRejectedValueOnce(new Error('create failed'));
+
+    const res = await request(app)
+      .post('/api/v1/pricing/rules')
+      .set('Authorization', `Bearer ${signToken({ role: 'admin' })}`)
+      .set('x-store-id', '1')
+      .send({
+        ruleName: 'Failing Rule',
+        ruleType: 'fixed',
+        basePrice: 10,
+        effectiveFrom: '2026-05-24T00:00:00.000Z',
+      });
+
+    expect(res.status).toBe(500);
+    expect(auditLogsMock.createLog).not.toHaveBeenCalled();
+  });
+
+  it('keeps pricing rule response successful when audit logging rejects', async () => {
+    pricingServiceMock.createPricingRule.mockResolvedValueOnce({
+      id: 'rule-audit-fail',
+      storeId: 1,
+      ruleName: 'Audit Failure Rule',
+      ruleType: 'fixed',
+      basePrice: 10,
+      isActive: true,
+    });
+    auditLogsMock.createLog.mockRejectedValueOnce(new Error('audit failed'));
+
+    const res = await request(app)
+      .post('/api/v1/pricing/rules')
+      .set('Authorization', `Bearer ${signToken({ role: 'admin' })}`)
+      .set('x-store-id', '1')
+      .send({
+        ruleName: 'Audit Failure Rule',
+        ruleType: 'fixed',
+        basePrice: 10,
+        effectiveFrom: '2026-05-24T00:00:00.000Z',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.rule.id).toBe('rule-audit-fail');
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'PRICING_RULE_CREATED' }));
+  });
+
+  it('writes DEMAND_METRICS_UPDATED audit log after successful demand metrics update', async () => {
+    pricingServiceMock.updateDemandMetrics.mockResolvedValueOnce({
+      demandLevel: 80,
+      inventoryLevel: 25,
+      lastCalculated: new Date('2026-05-24T00:00:00.000Z'),
+    });
+
+    const res = await request(app)
+      .post('/api/v1/pricing/demand-metrics')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'district_manager' })}`)
+      .set('x-store-id', '1')
+      .send({
+        productVariantId: 3,
+        categoryId: 4,
+        dayOfWeek: 2,
+        hourOfDay: 9,
+        demandLevel: 80,
+        inventoryLevel: 25,
+      });
+
+    expect(res.status).toBe(200);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DEMAND_METRICS_UPDATED',
+        objectType: 'demand_metrics',
+        objectId: '1-3-4-2-9',
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          storeId: 1,
+          after: expect.objectContaining({ demandLevel: 80, inventoryLevel: 25 }),
+          metadata: expect.objectContaining({
+            productVariantId: 3,
+            categoryId: 4,
+            dayOfWeek: 2,
+            hourOfDay: 9,
+            demandLevel: 80,
+            inventoryLevel: 25,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('writes COMPETITOR_PRICE_RECORDED audit log after successful competitor price record', async () => {
+    pricingServiceMock.recordCompetitorPrice.mockResolvedValueOnce({
+      isCompetitive: true,
+      priceDiffPercent: '-5.00',
+    });
+
+    const res = await request(app)
+      .post('/api/v1/pricing/competitor-prices')
+      .set('Authorization', `Bearer ${signToken({ userId: 77, role: 'store_manager' })}`)
+      .set('x-store-id', '1')
+      .send({
+        productSku: 'SKU-AUDIT',
+        competitorName: 'MegaMart',
+        competitorPrice: 10,
+        ourPrice: 9.5,
+        password: 'should-not-be-logged',
+      });
+
+    expect(res.status).toBe(201);
+    expect(auditLogsMock.createLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'COMPETITOR_PRICE_RECORDED',
+        objectType: 'competitor_price',
+        objectId: undefined,
+        userId: 77,
+        payload: expect.objectContaining({
+          result: 'success',
+          storeId: 1,
+          metadata: expect.objectContaining({
+            productSku: 'SKU-AUDIT',
+            competitorName: 'MegaMart',
+            competitorPrice: 10,
+            ourPrice: 9.5,
+            isCompetitive: true,
+            priceDiffPercent: '-5.00',
+          }),
+        }),
+      }),
+    );
+    expect(JSON.stringify(auditLogsMock.createLog.mock.calls[0][0])).not.toContain('should-not-be-logged');
+    expect(JSON.stringify(auditLogsMock.createLog.mock.calls[0][0])).not.toContain('password');
   });
 });
