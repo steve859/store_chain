@@ -339,6 +339,10 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
       return res.status(400).json({ error: 'Invalid transfer id' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+
     const createdBy = req.body?.createdBy !== undefined ? Number(req.body.createdBy) : null;
     const referenceId = req.body?.referenceId ? String(req.body.referenceId) : null;
     const reason = req.body?.reason ? String(req.body.reason) : 'Receive transfer';
@@ -359,6 +363,9 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
       if (!transfer) throw new Error('Transfer not found');
       if (!transfer.from_store_id || !transfer.to_store_id) throw new Error('Transfer missing store ids');
       if (transfer.status !== 'in_transit') throw new Error('Transfer is not receivable');
+      if (!isAdmin && Number(transfer.to_store_id) !== activeStoreId) {
+        return { __forbiddenActiveStore: true };
+      }
 
       const reference = referenceId ?? `TR:${transfer.id}`;
 
@@ -460,6 +467,10 @@ router.post('/:id/receive', requireActiveStoreUnlessAdmin, authorizeRoles(transf
         data: { status: isCompleted ? 'completed' : 'in_transit' },
       });
     });
+
+    if ('__forbiddenActiveStore' in updated) {
+      return res.status(403).json({ error: 'Forbidden: transfer destination store does not match active store' });
+    }
 
     return res.status(201).json({ transfer: updated });
   } catch (err) {
