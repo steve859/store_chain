@@ -39,6 +39,40 @@ const transferItem = {
   received_quantity: new Prisma.Decimal(0),
 };
 
+const mockDispatchTransaction = (fromStoreId: number) => {
+  const updateInventory = jest.fn(async () => ({ id: 20 }));
+  const createMovement = jest.fn(async () => ({ id: 40 }));
+  const updateTransfer = jest.fn(async () => ({ id: 30, status: 'in_transit' }));
+
+  (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+    const tx = {
+      store_transfers: {
+        findUnique: jest.fn(async () => ({
+          id: 30,
+          from_store_id: fromStoreId,
+          to_store_id: 2,
+          status: 'pending',
+          store_transfer_items: [transferItem],
+        })),
+        update: updateTransfer,
+      },
+      inventories: {
+        findFirst: jest.fn(async () => ({
+          id: 20,
+          reserved: new Prisma.Decimal(2),
+        })),
+        update: updateInventory,
+      },
+      stock_movements: {
+        create: createMovement,
+      },
+    };
+    return fn(tx);
+  });
+
+  return { updateInventory, createMovement, updateTransfer };
+};
+
 describe('Transfer route protection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -137,32 +171,7 @@ describe('Transfer route protection', () => {
 
   it('allows STORE_MANAGER to reach the dispatch handler path', async () => {
     const token = signToken({ role: 'store_manager' });
-
-    (prisma.$transaction as unknown as jest.Mock).mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
-      const tx = {
-        store_transfers: {
-          findUnique: jest.fn(async () => ({
-            id: 30,
-            from_store_id: 1,
-            to_store_id: 2,
-            status: 'pending',
-            store_transfer_items: [transferItem],
-          })),
-          update: jest.fn(async () => ({ id: 30, status: 'in_transit' })),
-        },
-        inventories: {
-          findFirst: jest.fn(async () => ({
-            id: 20,
-            reserved: new Prisma.Decimal(2),
-          })),
-          update: jest.fn(async () => ({ id: 20 })),
-        },
-        stock_movements: {
-          create: jest.fn(async () => ({ id: 40 })),
-        },
-      };
-      return fn(tx);
-    });
+    mockDispatchTransaction(1);
 
     const res = await request(app)
       .post('/api/v1/transfers/30/dispatch')
@@ -172,6 +181,56 @@ describe('Transfer route protection', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ transfer: { id: 30, status: 'in_transit' } });
+  });
+
+  it('returns 403 when non-admin dispatches transfer from a different source store', async () => {
+    const token = signToken({ role: 'store_manager', storeIds: [1, 2], primaryStoreId: 1 });
+    const txMocks = mockDispatchTransaction(2);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/dispatch')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden: transfer source store does not match active store' });
+    expect(txMocks.updateInventory).not.toHaveBeenCalled();
+    expect(txMocks.createMovement).not.toHaveBeenCalled();
+    expect(txMocks.updateTransfer).not.toHaveBeenCalled();
+  });
+
+  it('allows non-admin to dispatch transfer from the active source store', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const txMocks = mockDispatchTransaction(1);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/dispatch')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1')
+      .send({});
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ transfer: { id: 30, status: 'in_transit' } });
+    expect(txMocks.updateInventory).toHaveBeenCalled();
+    expect(txMocks.createMovement).toHaveBeenCalled();
+    expect(txMocks.updateTransfer).toHaveBeenCalledWith({ where: { id: 30 }, data: { status: 'in_transit' } });
+  });
+
+  it('allows ADMIN to dispatch transfer without active store', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const txMocks = mockDispatchTransaction(2);
+
+    const res = await request(app)
+      .post('/api/v1/transfers/30/dispatch')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ transfer: { id: 30, status: 'in_transit' } });
+    expect(txMocks.updateInventory).toHaveBeenCalled();
+    expect(txMocks.createMovement).toHaveBeenCalled();
+    expect(txMocks.updateTransfer).toHaveBeenCalledWith({ where: { id: 30 }, data: { status: 'in_transit' } });
   });
 
   it('allows INVENTORY_STAFF to reach the receive handler path', async () => {

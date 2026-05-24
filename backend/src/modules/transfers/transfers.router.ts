@@ -256,6 +256,10 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
       return res.status(400).json({ error: 'Invalid transfer id' });
     }
 
+    const role = req.user && typeof req.user === 'object' ? String((req.user as any).role ?? '') : '';
+    const isAdmin = role.toLowerCase() === 'admin';
+    const activeStoreId = Number(req.activeStoreId);
+
     const createdBy = req.body?.createdBy !== undefined ? Number(req.body.createdBy) : null;
     const referenceId = req.body?.referenceId ? String(req.body.referenceId) : null;
     const reason = req.body?.reason ? String(req.body.reason) : 'Dispatch transfer';
@@ -271,6 +275,9 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
       if (!transfer) throw new Error('Transfer not found');
       if (!transfer.from_store_id || !transfer.to_store_id) throw new Error('Transfer missing store ids');
       if (transfer.status !== 'pending') throw new Error('Transfer is not dispatchable');
+      if (!isAdmin && Number(transfer.from_store_id) !== activeStoreId) {
+        return { __forbiddenActiveStore: true };
+      }
 
       for (const item of transfer.store_transfer_items) {
         if (!item.variant_id) throw new Error('Transfer item missing variant_id');
@@ -309,6 +316,10 @@ router.post('/:id/dispatch', requireActiveStoreUnlessAdmin, authorizeRoles(trans
 
       return tx.store_transfers.update({ where: { id: transfer.id }, data: { status: 'in_transit' } });
     });
+
+    if ('__forbiddenActiveStore' in updated) {
+      return res.status(403).json({ error: 'Forbidden: transfer source store does not match active store' });
+    }
 
     return res.status(201).json({ transfer: updated });
   } catch (err) {
