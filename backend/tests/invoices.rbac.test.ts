@@ -165,6 +165,73 @@ describe('Invoices route protection', () => {
     expect(res.body).toEqual({ error: 'Forbidden' });
   });
 
+  it('rejects non-admin invoice detail when store_id is null', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...invoice, store_id: null });
+
+    const res = await request(app)
+      .get('/api/v1/invoices/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('rejects non-admin invoice detail when store_id is missing', async () => {
+    const token = signToken({ role: 'store_manager' });
+    const invoiceWithoutStoreId: Record<string, unknown> = { ...invoice };
+    delete invoiceWithoutStoreId.store_id;
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce(invoiceWithoutStoreId);
+
+    const res = await request(app)
+      .get('/api/v1/invoices/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('rejects non-admin invoice detail when store_id is invalid', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce({ ...invoice, store_id: 'abc' });
+
+    const res = await request(app)
+      .get('/api/v1/invoices/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'Forbidden' });
+  });
+
+  it('keeps missing invoice detail returned as 404', async () => {
+    const token = signToken({ role: 'store_manager' });
+    (prisma.invoices.findUnique as unknown as jest.Mock).mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .get('/api/v1/invoices/10')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Invoice not found' });
+  });
+
+  it('keeps invalid invoice detail id returned as 400', async () => {
+    const token = signToken({ role: 'store_manager' });
+
+    const res = await request(app)
+      .get('/api/v1/invoices/not-a-number')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-store-id', '1');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Invalid invoice id' });
+    expect(prisma.invoices.findUnique).not.toHaveBeenCalled();
+  });
+
   it('allows ADMIN to list and view detail without active store', async () => {
     const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
 
@@ -178,5 +245,31 @@ describe('Invoices route protection', () => {
 
     expect(listRes.status).toBe(200);
     expect(detailRes.status).toBe(200);
+  });
+
+  it('allows ADMIN to view detail when store_id is null, missing, or invalid', async () => {
+    const token = signToken({ role: 'admin', storeIds: [], primaryStoreId: null });
+    const invoiceWithoutStoreId: Record<string, unknown> = { ...invoice };
+    delete invoiceWithoutStoreId.store_id;
+    (prisma.invoices.findUnique as unknown as jest.Mock)
+      .mockResolvedValueOnce({ ...invoice, store_id: null })
+      .mockResolvedValueOnce(invoiceWithoutStoreId)
+      .mockResolvedValueOnce({ ...invoice, store_id: 'abc' });
+
+    const nullRes = await request(app)
+      .get('/api/v1/invoices/10')
+      .set('Authorization', `Bearer ${token}`);
+
+    const missingRes = await request(app)
+      .get('/api/v1/invoices/11')
+      .set('Authorization', `Bearer ${token}`);
+
+    const invalidRes = await request(app)
+      .get('/api/v1/invoices/12')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(nullRes.status).toBe(200);
+    expect(missingRes.status).toBe(200);
+    expect(invalidRes.status).toBe(200);
   });
 });

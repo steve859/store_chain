@@ -134,9 +134,12 @@ router.get('/:id', authorizeRoles(invoiceReadRoles), async (req, res, next) => {
     }
 
     const isAdmin = isAdminRequest(req);
-    const activeStoreId = req.activeStoreId !== undefined ? Number(req.activeStoreId) : NaN;
-    if (!isAdmin && Number.isFinite(activeStoreId) && Number(invoice.store_id) !== activeStoreId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    const activeStoreId = Number(req.activeStoreId);
+    const invoiceStoreId = invoice.store_id !== undefined && invoice.store_id !== null ? Number(invoice.store_id) : NaN;
+    if (!isAdmin) {
+      if (!Number.isFinite(activeStoreId) || !Number.isFinite(invoiceStoreId) || invoiceStoreId !== activeStoreId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     const order = {
