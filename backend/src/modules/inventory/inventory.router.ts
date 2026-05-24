@@ -1,10 +1,11 @@
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { Prisma } from '@prisma/client'
 import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 import { invalidateCatalogCache } from '../../lib/cache/catalog';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
 
 const router = Router();
 
@@ -24,6 +25,41 @@ const inventoryLookupRoles = [
   'cashier',
 ];
 const stockWriteRoles = ['ADMIN', 'STORE_MANAGER', 'INVENTORY_STAFF', 'admin', 'store_manager', 'inventory_staff'];
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const safeInventorySnapshot = (inventory: unknown) => {
+  if (!inventory) return null;
+  const row = asRecord(inventory);
+  return {
+    id: row.id,
+    store_id: row.store_id,
+    variant_id: row.variant_id,
+    quantity: row.quantity,
+    reserved: row.reserved,
+    last_cost: row.last_cost,
+    last_update: row.last_update,
+  };
+};
 
 const toDecimal = (value: unknown): Prisma.Decimal => {
   if (value === null || value === undefined || value === '') {
@@ -371,6 +407,31 @@ router.post('/receive', requireActiveStoreUnlessAdmin, authorizeRoles(stockWrite
     });
 
     await invalidateCatalogCache(storeIdNum);
+    const movementRecord = asRecord(result.movement);
+    const reasonText = reason ? String(reason) : '';
+    await writeAuditLog({
+      action: 'INVENTORY_RECEIVED',
+      objectType: 'stock_movement',
+      objectId: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId: storeIdNum,
+        variantId: variantIdNum,
+        after: safeInventorySnapshot(result.inventory),
+        metadata: {
+          quantity,
+          unitCost,
+          lotId: asRecord(result.lot).id,
+          stockMovementId: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+          referenceId: referenceId !== undefined && referenceId !== null ? String(referenceId) : undefined,
+          reasonPresent: reasonText.length > 0,
+          reasonPreview: reasonText ? reasonText.slice(0, 80) : undefined,
+          createdByEffective: createdBy ? Number(createdBy) : null,
+        },
+      },
+    });
     return res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -408,10 +469,12 @@ router.post('/adjust', requireActiveStoreUnlessAdmin, authorizeRoles(stockWriteR
       return res.status(400).json({ error: 'Provide exactly one of delta or setTo' });
     }
 
+    let previousInventory: unknown = null;
     const result = await prisma.$transaction(async (tx) => {
       const inventory = await tx.inventories.findFirst({
         where: { store_id: storeIdNum, variant_id: variantIdNum },
       });
+      previousInventory = inventory;
 
       // Resolve delta
       const deltaDec = hasDelta ? toDecimal(delta) : toDecimal(setTo);
@@ -500,6 +563,31 @@ router.post('/adjust', requireActiveStoreUnlessAdmin, authorizeRoles(stockWriteR
     });
 
     await invalidateCatalogCache(storeIdNum);
+    const movementRecord = asRecord(result.movement);
+    const reasonText = reason ? String(reason) : '';
+    await writeAuditLog({
+      action: 'INVENTORY_ADJUSTED',
+      objectType: 'stock_movement',
+      objectId: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId: storeIdNum,
+        variantId: variantIdNum,
+        before: safeInventorySnapshot(previousInventory),
+        after: safeInventorySnapshot(result.inventory),
+        metadata: {
+          delta: hasDelta ? delta : undefined,
+          setTo: hasSetTo ? setTo : undefined,
+          stockMovementId: movementRecord.id !== undefined && movementRecord.id !== null ? String(movementRecord.id) : undefined,
+          referenceId: referenceId !== undefined && referenceId !== null ? String(referenceId) : undefined,
+          reasonPresent: reasonText.length > 0,
+          reasonPreview: reasonText ? reasonText.slice(0, 80) : undefined,
+          createdByEffective: createdBy ? Number(createdBy) : null,
+        },
+      },
+    });
     return res.status(201).json(result);
   } catch (err) {
     next(err);
