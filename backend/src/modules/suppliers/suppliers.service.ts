@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import prisma from '../../db/prisma';
+import { SuppliersRepository } from './suppliers.repository';
 
 interface CreateSupplierDto {
   name: string;
@@ -34,12 +34,11 @@ export const SuppliersService = {
     }
 
     const [total, suppliers] = await Promise.all([
-      prisma.suppliers.count({ where: whereCondition }),
-      prisma.suppliers.findMany({
+      SuppliersRepository.count(whereCondition),
+      SuppliersRepository.findMany({
         where: whereCondition,
         skip,
         take: limit,
-        orderBy: { created_at: 'desc' }
       })
     ]);
 
@@ -60,33 +59,29 @@ export const SuppliersService = {
     const supplierId = Number(id);
     if (!Number.isFinite(supplierId)) throw new Error('Invalid supplier id');
 
-    const supplier = await prisma.suppliers.findUnique({ where: { id: supplierId } });
+    const supplier = await SuppliersRepository.findById(supplierId);
     if (!supplier) throw new Error('Supplier not found');
     return supplier;
   },
 
   createSupplier: async (data: CreateSupplierDto) => {
     if (data.phone) {
-      const existingPhone = await prisma.suppliers.findFirst({
-        where: { phone: data.phone },
-      });
+      const existingPhone = await SuppliersRepository.findByPhone(data.phone);
       if (existingPhone) throw new Error('Supplier with this phone number already exists.');
     }
 
     if (data.email) {
-      const existingEmail = await prisma.suppliers.findFirst({ where: { email: data.email } });
+      const existingEmail = await SuppliersRepository.findByEmail(data.email);
       if (existingEmail) throw new Error('Supplier with this email already exists.');
     }
 
-    return prisma.suppliers.create({
-      data: {
-        name: data.name,
-        phone: data.phone ?? null,
-        email: data.email ?? null,
-        address: data.address ?? null,
-        contact_name: data.contactPerson ?? null,
-        note: data.note ?? null,
-      },
+    return SuppliersRepository.create({
+      name: data.name,
+      phone: data.phone ?? null,
+      email: data.email ?? null,
+      address: data.address ?? null,
+      contact_name: data.contactPerson ?? null,
+      note: data.note ?? null,
     });
   },
 
@@ -94,39 +89,32 @@ export const SuppliersService = {
     const supplierId = Number(id);
     if (!Number.isFinite(supplierId)) throw new Error('Invalid supplier id');
 
-    const supplier = await prisma.suppliers.findUnique({ where: { id: supplierId } });
+    const supplier = await SuppliersRepository.findById(supplierId);
     if (!supplier) throw new Error('Supplier not found');
 
     if (data.phone && data.phone !== supplier.phone) {
-      const duplicate = await prisma.suppliers.findFirst({
-        where: { phone: data.phone, id: { not: supplierId } },
-      });
+      const duplicate = await SuppliersRepository.findDuplicatePhone(data.phone, supplierId);
       if (duplicate) throw new Error('Phone number is already taken.');
     }
 
     if (data.email && data.email !== supplier.email) {
-      const duplicateEmail = await prisma.suppliers.findFirst({
-        where: { email: data.email, id: { not: supplierId } },
-      });
+      const duplicateEmail = await SuppliersRepository.findDuplicateEmail(data.email, supplierId);
       if (duplicateEmail) throw new Error('Email is already taken.');
     }
 
-    return prisma.suppliers.update({
-      where: { id: supplierId },
-      data: {
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.phone !== undefined ? { phone: data.phone ?? null } : {}),
-        ...(data.email !== undefined ? { email: data.email ?? null } : {}),
-        ...(data.address !== undefined ? { address: data.address ?? null } : {}),
-        ...(data.contactPerson !== undefined ? { contact_name: data.contactPerson ?? null } : {}),
-        ...(data.note !== undefined ? { note: data.note ?? null } : {}),
-      },
+    return SuppliersRepository.update(supplierId, {
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.phone !== undefined ? { phone: data.phone ?? null } : {}),
+      ...(data.email !== undefined ? { email: data.email ?? null } : {}),
+      ...(data.address !== undefined ? { address: data.address ?? null } : {}),
+      ...(data.contactPerson !== undefined ? { contact_name: data.contactPerson ?? null } : {}),
+      ...(data.note !== undefined ? { note: data.note ?? null } : {}),
     });
   },
 
   deleteSupplier: async (id: string) => {
     await SuppliersService.getSupplierById(id);
     const supplierId = Number(id);
-    return prisma.suppliers.delete({ where: { id: supplierId } });
+    return SuppliersRepository.delete(supplierId);
   }
 };

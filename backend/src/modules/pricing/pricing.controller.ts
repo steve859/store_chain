@@ -1,7 +1,35 @@
 import { Request, Response } from 'express';
 import { pricingService } from './pricing.service';
-import { pricingEngine } from '../../lib/cache/pricingEngine';
-import { logger } from '../../lib/monitoring/logger';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const deriveDemandMetricsId = (storeId: number, input: Record<string, unknown>) => {
+  const productVariantId = input.productVariantId || 0;
+  const categoryId = input.categoryId || 0;
+  const dayOfWeek = input.dayOfWeek || 0;
+  const hourOfDay = input.hourOfDay || new Date().getHours();
+  return `${storeId}-${productVariantId}-${categoryId}-${dayOfWeek}-${hourOfDay}`;
+};
 
 /**
  * Create a new pricing rule
@@ -36,6 +64,30 @@ export const createPricingRuleHandler = async (req: Request, res: Response) => {
       ...rest,
     });
 
+    await writeAuditLog({
+      action: 'PRICING_RULE_CREATED',
+      objectType: 'pricing_rule',
+      objectId: rule?.id !== undefined && rule?.id !== null ? String(rule.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: rule,
+        metadata: {
+          ruleName,
+          ruleType,
+          productVariantId: req.body?.productVariantId,
+          categoryId: req.body?.categoryId,
+          priority: priority || 0,
+          effectiveFrom,
+          effectiveUntil: effectiveUntil ?? null,
+          minPrice: minPrice ?? null,
+          maxPrice: maxPrice ?? null,
+        },
+      },
+    });
+
     res.status(201).json({
       message: 'Pricing rule created successfully',
       rule,
@@ -52,80 +104,30 @@ export const createPricingRuleHandler = async (req: Request, res: Response) => {
 /**
  * Get recommended price for a product
  * GET /api/v1/pricing/recommend
- * 
- * Cache Strategy (3-layer):
- * L1: In-memory variant cache (<1ms)
- * L2: Redis response cache (~2-5ms)
- * L3: Full calculation with database (~50ms)
  */
 export const getRecommendedPriceHandler = async (req: Request, res: Response) => {
-  const startTime = Date.now();
-  const storeId = req.activeStoreId || 1;
-  const { currentPrice, productVariantId, categoryId, demandLevel } = req.query;
-
   try {
+    const storeId = req.activeStoreId || 1;
+    const { currentPrice, productVariantId, categoryId, demandLevel } = req.query;
+
     if (!currentPrice) {
       return res.status(400).json({ error: 'Missing required parameter: currentPrice' });
     }
 
-    let cacheLevel = 'L3'; // Default to full calculation
-    const variantId = productVariantId ? parseInt(productVariantId as string) : undefined;
-
-    // L1 Cache: In-memory variant data (fastest)
-    if (variantId && pricingEngine.isEngineCacheValid(storeId)) {
-      const cachedVariant = pricingEngine.getPricingDataInMemory(storeId, variantId);
-      if (cachedVariant) {
-        cacheLevel = 'L1';
-        logger.debug({
-          message: 'L1 cache hit - pricing lookup',
-          storeId,
-          variantId,
-          latencyMs: Date.now() - startTime,
-        });
-      }
-    }
-
-    // L2/L3 will be handled by middleware response cache and service calculation
     const price = await pricingService.calculateRecommendedPrice(
       storeId,
       parseFloat(currentPrice as string),
-      variantId,
+      productVariantId ? parseInt(productVariantId as string) : undefined,
       categoryId ? parseInt(categoryId as string) : undefined,
       demandLevel ? parseFloat(demandLevel as string) : undefined
     );
 
-    const latencyMs = Date.now() - startTime;
-
-    // Add cache level and latency info to response
-    res.set({
-      'X-Cache-Level': cacheLevel,
-      'X-Lookup-Time-Ms': String(latencyMs),
-    });
-
-    if (latencyMs > 100) {
-      logger.warn({
-        message: 'Pricing lookup exceeded 100ms target',
-        storeId,
-        variantId,
-        cacheLevel,
-        latencyMs,
-      });
-    }
-
     res.json({
       message: 'Price recommendation calculated',
       price,
-      _metadata: {
-        cacheLevel, // L1/L2/L3 for debugging
-        latencyMs,
-      },
     });
   } catch (error: any) {
-    logger.error({
-      type: 'price_recommendation_error',
-      storeId,
-      errorMessage: error.message,
-    });
+    console.error('Error calculating recommended price:', error);
     res.status(500).json({
       error: 'Failed to calculate recommended price',
       details: error.message,
@@ -215,6 +217,27 @@ export const updateDemandMetricsHandler = async (req: Request, res: Response) =>
       ...rest,
     });
 
+    await writeAuditLog({
+      action: 'DEMAND_METRICS_UPDATED',
+      objectType: 'demand_metrics',
+      objectId: deriveDemandMetricsId(storeId, { productVariantId, categoryId, dayOfWeek, hourOfDay: rest.hourOfDay }),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: metrics,
+        metadata: {
+          productVariantId,
+          categoryId,
+          dayOfWeek,
+          hourOfDay: rest.hourOfDay,
+          demandLevel,
+          inventoryLevel,
+        },
+      },
+    });
+
     res.json({
       message: 'Demand metrics updated',
       metrics,
@@ -251,6 +274,26 @@ export const recordCompetitorPriceHandler = async (req: Request, res: Response) 
       parseFloat(ourPrice)
     );
 
+    await writeAuditLog({
+      action: 'COMPETITOR_PRICE_RECORDED',
+      objectType: 'competitor_price',
+      objectId: undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        metadata: {
+          productSku,
+          competitorName,
+          competitorPrice,
+          ourPrice,
+          isCompetitive: result.isCompetitive,
+          priceDiffPercent: result.priceDiffPercent,
+        },
+      },
+    });
+
     res.status(201).json({
       message: 'Competitor price recorded',
       isCompetitive: result.isCompetitive,
@@ -265,51 +308,3 @@ export const recordCompetitorPriceHandler = async (req: Request, res: Response) 
   }
 };
 
-
-/**
- * Calculate batch pricing for a store (ASR-S3)
- * POST /api/v1/pricing/calculate-batch
- * Admin-only endpoint to manually trigger batch pricing recalculation
- */
-export const calculatePricingBatchHandler = async (req: Request, res: Response) => {
-  try {
-    const { enqueueJob, JobType } = await import('../../lib/queues/jobQueue');
-    const storeId = req.activeStoreId || Number(req.headers['x-store-id'] || 1);
-    const { limit = 1000, offset = 0, forceRecalculate = false } = req.body;
-
-    if (!storeId) {
-      return res.status(400).json({
-        error: 'Store ID is required',
-      });
-    }
-
-    // Enqueue batch pricing job
-    const job = await enqueueJob(
-      JobType.CALCULATE_PRICING,
-      {
-        storeId,
-        limit,
-        offset,
-        forceRecalculate,
-      },
-      {
-        priority: parseInt(process.env.PRICING_JOB_PRIORITY || '5', 10),
-        removeOnComplete: true,
-      }
-    );
-
-    res.status(202).json({
-      message: 'Batch pricing calculation enqueued',
-      jobId: job.id,
-      storeId,
-      limit,
-      offset,
-    });
-  } catch (error: any) {
-    console.error('Error enqueueing batch pricing job:', error);
-    res.status(500).json({
-      error: 'Failed to enqueue batch pricing job',
-      details: error.message,
-    });
-  }
-};
