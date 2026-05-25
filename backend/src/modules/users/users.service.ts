@@ -1,8 +1,6 @@
 import bcrypt from 'bcrypt';
 
-import prisma from '../../db/prisma';
-import type { Prisma } from '@prisma/client';
-
+import { UsersRepository } from './users.repository';
 
 // DTO cho tạo mới
 interface CreateUserDto {
@@ -49,63 +47,18 @@ const normalizeStoreIds = (data: { storeId?: number | null; storeIds?: number[];
   return { storeIds, primaryStoreId };
 };
 
-const syncUserStores = async (
-  tx: Prisma.TransactionClient,
-  userId: number,
-  input: { storeIds: number[]; primaryStoreId: number | null; roleId?: number | null }
-) => {
-  const storeIds = input.storeIds;
-
-  if (storeIds.length === 0) {
-    await tx.user_stores.deleteMany({ where: { user_id: userId } });
-    return;
-  }
-
-  const storesCount = await tx.stores.count({ where: { id: { in: storeIds } } });
-  if (storesCount !== storeIds.length) {
-    throw new Error('One or more storeIds not found');
-  }
-
-  const primary = input.primaryStoreId && storeIds.includes(input.primaryStoreId) ? input.primaryStoreId : storeIds[0];
-
-  await tx.user_stores.deleteMany({ where: { user_id: userId, store_id: { notIn: storeIds } } });
-
-  for (const storeId of storeIds) {
-    await tx.user_stores.upsert({
-      where: { user_id_store_id: { user_id: userId, store_id: storeId } },
-      create: {
-        user_id: userId,
-        store_id: storeId,
-        role_id: input.roleId ?? null,
-        is_primary: storeId === primary,
-        is_active: true,
-      },
-      update: {
-        role_id: input.roleId ?? undefined,
-        is_primary: storeId === primary,
-        is_active: true,
-        updated_at: new Date(),
-      },
-    });
-  }
+const withoutPasswordHash = <T extends { password_hash?: unknown }>(user: T) => {
+  const result = { ...user };
+  delete result.password_hash;
+  return result;
 };
 
 export const UserService = {
   // 1. Lấy danh sách Users
   getAllUsers: async () => {
-    const users = await prisma.users.findMany({
-      include: {
-        roles: true,
-        stores: true,
-        user_stores: {
-          include: { stores: true, roles: true },
-          orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }],
-        },
-      },
-      orderBy: { id: 'desc' },
-    });
+    const users = await UsersRepository.findAllWithRelations();
 
-    return users.map(({ password_hash, ...rest }) => rest);
+    return users.map((user) => withoutPasswordHash(user));
   },
 
   // 2. Lấy chi tiết 1 User
@@ -113,22 +66,11 @@ export const UserService = {
     const userId = Number(id);
     if (!Number.isFinite(userId)) throw new Error('Invalid user id');
 
-    const user = await prisma.users.findUnique({
-      where: { id: userId },
-      include: {
-        roles: true,
-        stores: true,
-        user_stores: {
-          include: { stores: true, roles: true },
-          orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }],
-        },
-      },
-    });
+    const user = await UsersRepository.findByIdWithRelations(userId);
 
     if (!user) throw new Error('User not found');
 
-    const { password_hash, ...result } = user;
-    return result;
+    return withoutPasswordHash(user);
   },
 
   // 3. TẠO USER MỚI
@@ -137,57 +79,40 @@ export const UserService = {
     if (!username) throw new Error('username is required');
 
     if (data.email) {
-      const existingEmail = await prisma.users.findFirst({ where: { email: data.email } });
+      const existingEmail = await UsersRepository.findByEmail(data.email);
       if (existingEmail) throw new Error('Email is already in use.');
     }
 
-    const existingUsername = await prisma.users.findFirst({ where: { username } });
+    const existingUsername = await UsersRepository.findByUsername(username);
     if (existingUsername) throw new Error('Username is already in use.');
 
     const roleId = Number(data.roleId);
     if (!Number.isFinite(roleId)) throw new Error('Invalid roleId');
-    const roleExists = await prisma.roles.findUnique({ where: { id: roleId } });
+    const roleExists = await UsersRepository.findRoleById(roleId);
     if (!roleExists) throw new Error('Role not found.');
 
     const storeInput = normalizeStoreIds({ storeId: data.storeId, storeIds: data.storeIds, primaryStoreId: data.primaryStoreId });
     if (storeInput.storeIds.length > 0) {
-      const storesCount = await prisma.stores.count({ where: { id: { in: storeInput.storeIds } } });
+      const storesCount = await UsersRepository.countStoresByIds(storeInput.storeIds);
       if (storesCount !== storeInput.storeIds.length) throw new Error('One or more stores not found.');
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const created = await prisma.$transaction(async (tx) => {
-      const createdUser = await tx.users.create({
-        data: {
-          username,
-          password_hash: hashedPassword,
-          full_name: data.name ?? null,
-          email: data.email ?? null,
-          role_id: roleId,
-          // legacy store_id remains primary store for compatibility
-          store_id: storeInput.primaryStoreId ?? null,
-          is_active: true,
-        },
-        include: { roles: true, stores: true },
-      });
-
-      if (storeInput.storeIds.length > 0) {
-        await syncUserStores(tx, createdUser.id, { storeIds: storeInput.storeIds, primaryStoreId: storeInput.primaryStoreId, roleId: null });
-      }
-
-      return tx.users.findUnique({
-        where: { id: createdUser.id },
-        include: {
-          roles: true,
-          stores: true,
-          user_stores: { include: { stores: true, roles: true }, orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }] },
-        },
-      });
+    const created = await UsersRepository.createWithStores({
+      username,
+      passwordHash: hashedPassword,
+      fullName: data.name ?? null,
+      email: data.email ?? null,
+      roleId,
+      primaryStoreId: storeInput.primaryStoreId ?? null,
+    }, {
+      storeIds: storeInput.storeIds,
+      primaryStoreId: storeInput.primaryStoreId,
+      roleId: null,
     });
 
-    const { password_hash, ...result } = created as any;
-    return result;
+    return withoutPasswordHash(created!);
   },
 
   // 4. CẬP NHẬT USER
@@ -195,20 +120,16 @@ export const UserService = {
     const userId = Number(id);
     if (!Number.isFinite(userId)) throw new Error('Invalid user id');
 
-    const user = await prisma.users.findUnique({ where: { id: userId } });
+    const user = await UsersRepository.findById(userId);
     if (!user) throw new Error('User not found');
 
     if (data.email && data.email !== user.email) {
-      const dup = await prisma.users.findFirst({
-        where: { email: data.email, id: { not: userId } },
-      });
+      const dup = await UsersRepository.findDuplicateEmail(data.email, userId);
       if (dup) throw new Error('Email is already taken.');
     }
 
     if (data.username && data.username !== user.username) {
-      const dup = await prisma.users.findFirst({
-        where: { username: data.username, id: { not: userId } },
-      });
+      const dup = await UsersRepository.findDuplicateUsername(data.username, userId);
       if (dup) throw new Error('Username is already taken.');
     }
 
@@ -219,49 +140,30 @@ export const UserService = {
 
     const storeInput = normalizeStoreIds({ storeId: data.storeId, storeIds: data.storeIds, primaryStoreId: data.primaryStoreId });
 
-    const updatedUser = await prisma.$transaction(async (tx) => {
-      const updated = await tx.users.update({
-        where: { id: userId },
-        data: {
-          ...(data.email !== undefined ? { email: data.email } : {}),
-          ...(data.username !== undefined ? { username: data.username } : {}),
-          ...(data.name !== undefined ? { full_name: data.name } : {}),
-          ...(data.roleId !== undefined ? { role_id: data.roleId } : {}),
-          ...(data.storeId !== undefined || data.primaryStoreId !== undefined ? { store_id: storeInput.primaryStoreId } : {}),
-          ...(data.isActive !== undefined ? { is_active: data.isActive } : {}),
-          password_hash: updatedPasswordHash,
-          updated_at: new Date(),
-        },
-        include: { roles: true, stores: true },
-      });
+    const updatedUser = await UsersRepository.updateWithStores(
+      userId,
+      {
+        ...(data.email !== undefined ? { email: data.email } : {}),
+        ...(data.username !== undefined ? { username: data.username } : {}),
+        ...(data.name !== undefined ? { full_name: data.name } : {}),
+        ...(data.roleId !== undefined ? { role_id: data.roleId } : {}),
+        ...(data.storeId !== undefined || data.primaryStoreId !== undefined ? { store_id: storeInput.primaryStoreId } : {}),
+        ...(data.isActive !== undefined ? { is_active: data.isActive } : {}),
+        password_hash: updatedPasswordHash,
+        updated_at: new Date(),
+      },
+      data.storeIds !== undefined || data.storeId !== undefined || data.primaryStoreId !== undefined,
+      { storeIds: storeInput.storeIds, primaryStoreId: storeInput.primaryStoreId, roleId: null },
+    );
 
-      if (data.storeIds !== undefined || data.storeId !== undefined || data.primaryStoreId !== undefined) {
-        await syncUserStores(tx, userId, { storeIds: storeInput.storeIds, primaryStoreId: storeInput.primaryStoreId, roleId: null });
-      }
-
-      return tx.users.findUnique({
-        where: { id: updated.id },
-        include: {
-          roles: true,
-          stores: true,
-          user_stores: { include: { stores: true, roles: true }, orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }] },
-        },
-      });
-    });
-
-    const { password_hash, ...result } = updatedUser as any;
-    return result;
+    return withoutPasswordHash(updatedUser!);
   },
 
   getUserStores: async (id: string) => {
     const userId = Number(id);
     if (!Number.isFinite(userId)) throw new Error('Invalid user id');
 
-    const items = await prisma.user_stores.findMany({
-      where: { user_id: userId, is_active: true },
-      include: { stores: true, roles: true },
-      orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }],
-    });
+    const items = await UsersRepository.findActiveUserStores(userId);
 
     return items.map((us) => ({
       storeId: us.store_id,
@@ -277,7 +179,7 @@ export const UserService = {
     const userId = Number(id);
     if (!Number.isFinite(userId)) throw new Error('Invalid user id');
 
-    const user = await prisma.users.findUnique({ where: { id: userId } });
+    const user = await UsersRepository.findById(userId);
     if (!user) throw new Error('User not found');
 
     const storeIds = Array.isArray(data.storeIds)
@@ -285,18 +187,7 @@ export const UserService = {
       : [];
     const primaryStoreId = data.primaryStoreId !== undefined && data.primaryStoreId !== null ? Number(data.primaryStoreId) : null;
 
-    const updated = await prisma.$transaction(async (tx) => {
-      await syncUserStores(tx, userId, { storeIds, primaryStoreId, roleId: null });
-
-      const primary = primaryStoreId && storeIds.includes(primaryStoreId) ? primaryStoreId : storeIds[0] ?? null;
-      await tx.users.update({ where: { id: userId }, data: { store_id: primary, updated_at: new Date() } });
-
-      return tx.user_stores.findMany({
-        where: { user_id: userId },
-        include: { stores: true, roles: true },
-        orderBy: [{ is_primary: 'desc' }, { store_id: 'asc' }],
-      });
-    });
+    const updated = await UsersRepository.setUserStores(userId, { storeIds, primaryStoreId, roleId: null });
 
     return updated;
   },
@@ -306,12 +197,9 @@ export const UserService = {
     const userId = Number(id);
     if (!Number.isFinite(userId)) throw new Error('Invalid user id');
 
-    const user = await prisma.users.findUnique({ where: { id: userId } });
+    const user = await UsersRepository.findById(userId);
     if (!user) throw new Error('User not found');
 
-    return prisma.users.update({
-      where: { id: userId },
-      data: { is_active: false },
-    });
+    return UsersRepository.deactivate(userId);
   },
 };

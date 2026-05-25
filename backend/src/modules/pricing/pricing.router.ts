@@ -7,25 +7,29 @@ import {
   updateDemandMetricsHandler,
   recordCompetitorPriceHandler,
 } from './pricing.controller';
+import { authenticateToken } from '../../middlewares/auth.middleware';
 import { requireActiveStore } from '../../middlewares/storeScope.middleware';
 import { authorizeRoles } from '../../middlewares/rbac.middleware';
 
 const router = express.Router();
 
+const pricingManagementRoles = ['ADMIN', 'DISTRICT_MANAGER', 'STORE_MANAGER', 'admin', 'district_manager', 'manager', 'store_manager'];
+
 // All pricing routes require authentication and active store
+router.use(authenticateToken);
 router.use(requireActiveStore);
 
-// Admin-only: manage pricing rules
-router.post('/rules', authorizeRoles(['admin', 'manager']), createPricingRuleHandler);
+// Management-only: manage pricing rules
+router.post('/rules', authorizeRoles(pricingManagementRoles), createPricingRuleHandler);
 
-// Any authenticated user: get price recommendations and reports
-router.get('/recommend', getRecommendedPriceHandler);
-router.get('/history/:productVariantId', getPricingHistoryHandler);
-router.get('/competitors', getCompetitivePricingReportHandler);
+// Management-only: get price recommendations and reports
+router.get('/recommend', authorizeRoles(pricingManagementRoles), getRecommendedPriceHandler);
+router.get('/history/:productVariantId', authorizeRoles(pricingManagementRoles), getPricingHistoryHandler);
+router.get('/competitors', authorizeRoles(pricingManagementRoles), getCompetitivePricingReportHandler);
 
-// Admin-only: update metrics and competitor data
-router.post('/demand-metrics', authorizeRoles(['admin', 'manager']), updateDemandMetricsHandler);
-router.post('/competitor-prices', authorizeRoles(['admin', 'manager']), recordCompetitorPriceHandler);
+// Management-only: update metrics and competitor data
+router.post('/demand-metrics', authorizeRoles(pricingManagementRoles), updateDemandMetricsHandler);
+router.post('/competitor-prices', authorizeRoles(pricingManagementRoles), recordCompetitorPriceHandler);
 
 export default router;
 

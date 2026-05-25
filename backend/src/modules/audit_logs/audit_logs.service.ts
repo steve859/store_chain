@@ -1,12 +1,11 @@
-import { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client';
+import { AuditLogsRepository } from './audit_logs.repository';
 
-import prisma from '../../db/prisma';
-
-interface GetLogsParams {
+export interface GetLogsParams {
   page?: number;
   limit?: number;
   action?: string;
-  objectType?: string; // Map với object_type trong DB
+  objectType?: string;
   userId?: number;
   startDate?: Date;
   endDate?: Date;
@@ -14,75 +13,50 @@ interface GetLogsParams {
 
 interface CreateLogDto {
   action: string;
-  objectType?: string; // Tên resource (ví dụ: SUPPLIER, PRODUCT)
-  objectId?: string;   // ID của resource
+  objectType?: string;
+  objectId?: string;
   userId?: number;
-  payload?: any;       // Chi tiết thay đổi
+  payload?: unknown;
 }
 
 export const AuditLogsService = {
-  // 1. GHI LOG (Thay thế hoàn toàn file audit.service.ts cũ)
   createLog: async (dto: CreateLogDto) => {
     try {
-      await prisma.audit_logs.create({
-        data: {
-          action: dto.action,
-          object_type: dto.objectType,
-          object_id: dto.objectId,
-          user_id: dto.userId,
-          // Payload là Json?, Prisma tự xử lý object JS thành JSON DB
-          payload: dto.payload ? JSON.parse(JSON.stringify(dto.payload)) : Prisma.JsonNull, 
-        }
+      await AuditLogsRepository.create({
+        action: dto.action,
+        object_type: dto.objectType,
+        object_id: dto.objectId,
+        user_id: dto.userId,
+        payload: dto.payload ? (JSON.parse(JSON.stringify(dto.payload)) as Prisma.InputJsonValue) : Prisma.JsonNull,
       });
     } catch (error) {
-      // Ghi log thất bại không được làm sập app, chỉ console.error
       console.error('Failed to write audit log:', error);
     }
   },
 
-  // 2. XEM LOG (Dành cho Admin Dashboard)
   getLogs: async ({ page = 1, limit = 20, action, objectType, userId, startDate, endDate }: GetLogsParams) => {
     const skip = (page - 1) * limit;
-
-    // Mapping điều kiện lọc theo Schema mới
     const whereCondition: Prisma.audit_logsWhereInput = {};
 
     if (action) whereCondition.action = action;
     if (objectType) whereCondition.object_type = objectType;
     if (userId) whereCondition.user_id = userId;
-    
+
     if (startDate && endDate) {
       whereCondition.created_at = {
         gte: startDate,
-        lte: endDate
+        lte: endDate,
       };
     }
 
     const [total, logs] = await Promise.all([
-      prisma.audit_logs.count({ where: whereCondition }),
-      prisma.audit_logs.findMany({
-        where: whereCondition,
-        skip,
-        take: limit,
-        orderBy: { created_at: 'desc' },
-        include: {
-          // Join bảng users để lấy tên người thực hiện
-          users: {
-            select: {
-              // Sửa các trường này cho khớp với bảng users của bạn (ví dụ: full_name hay username)
-              id: true,
-              email: true, 
-              // full_name: true 
-            }
-          }
-        }
-      })
+      AuditLogsRepository.count(whereCondition),
+      AuditLogsRepository.findMany({ where: whereCondition, skip, take: limit }),
     ]);
 
-    // XỬ LÝ BIGINT: Convert BigInt sang String để tránh lỗi JSON
-    const serializedLogs = logs.map((log: Prisma.audit_logsGetPayload<{ include: { users: { select: { id: true; email: true } } } }>) => ({
+    const serializedLogs = logs.map((log) => ({
       ...log,
-      id: log.id.toString(), // Quan trọng!
+      id: log.id.toString(),
     }));
 
     return {
@@ -91,8 +65,8 @@ export const AuditLogsService = {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     };
-  }
+  },
 };

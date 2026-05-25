@@ -1,5 +1,5 @@
-import prisma from '../../db/prisma';
 import { DiscountType } from '@prisma/client'
+import { PromotionsRepository } from './promotions.repository';
 
 // DTO Input
 interface CreatePromotionDto {
@@ -51,14 +51,12 @@ const normalizeStoreCodes = (stores: unknown): string[] => {
 export const PromotionService = {
   // 1. Lấy danh sách
   getAllPromotions: async () => {
-    return prisma.promotions.findMany({
-      orderBy: { created_at: 'desc' }
-    });
+    return PromotionsRepository.findMany();
   },
 
   // 2. Lấy chi tiết
   getPromotionById: async (id: number) => {
-    const promo = await prisma.promotions.findUnique({ where: { id } });
+    const promo = await PromotionsRepository.findById(id);
     if (!promo) throw new Error('Promotion not found');
     return promo;
   },
@@ -66,9 +64,7 @@ export const PromotionService = {
   // 3. TẠO KHUYẾN MÃI (Nhiều logic validate)
   createPromotion: async (data: CreatePromotionDto) => {
     // A. Validate Code trùng
-    const existingCode = await prisma.promotions.findUnique({
-      where: { code: data.code }
-    });
+    const existingCode = await PromotionsRepository.findByCode(data.code);
     if (existingCode) throw new Error('Promotion code already exists.');
 
     // B. Validate Ngày tháng
@@ -107,34 +103,30 @@ export const PromotionService = {
       throw new Error('stores is required when scope is stores.');
     }
 
-    return prisma.promotions.create({
-      data: {
-        code: data.code,
-        name: data.name,
-        type: discountType,
-        value: data.value,
-        min_order_value: minOrder,
-        max_discount: maxDiscount === null || maxDiscount === undefined ? null : Number(maxDiscount),
-        start_date: start,
-        end_date: end,
-        is_active: true,
-        scope,
-        store_codes: storeCodes,
-        updated_at: new Date(),
-      }
+    return PromotionsRepository.create({
+      code: data.code,
+      name: data.name,
+      type: discountType,
+      value: data.value,
+      min_order_value: minOrder,
+      max_discount: maxDiscount === null || maxDiscount === undefined ? null : Number(maxDiscount),
+      start_date: start,
+      end_date: end,
+      is_active: true,
+      scope,
+      store_codes: storeCodes,
+      updated_at: new Date(),
     });
   },
 
   // 4. CẬP NHẬT
   updatePromotion: async (id: number, data: UpdatePromotionDto) => {
-    const promo = await prisma.promotions.findUnique({ where: { id } });
+    const promo = await PromotionsRepository.findById(id);
     if (!promo) throw new Error('Promotion not found');
 
     // Nếu sửa code, phải check trùng
     if (data.code && data.code !== promo.code) {
-      const duplicate = await prisma.promotions.findUnique({
-        where: { code: data.code }
-      });
+      const duplicate = await PromotionsRepository.findByCode(data.code);
       if (duplicate) throw new Error('Promotion code already exists.');
     }
 
@@ -177,39 +169,34 @@ export const PromotionService = {
       }
     }
 
-    return prisma.promotions.update({
-      where: { id },
-      data: {
-        ...(data.code !== undefined ? { code: data.code } : {}),
-        ...(data.name !== undefined ? { name: data.name } : {}),
-        ...(data.type !== undefined ? { type: normalizeDiscountType(data.type) } : {}),
-        ...(data.value !== undefined ? { value: data.value } : {}),
-        ...(data.minOrder !== undefined ? { min_order_value: Number(data.minOrder) } : {}),
-        ...(data.maxDiscount !== undefined
-          ? { max_discount: data.maxDiscount === null ? null : Number(data.maxDiscount) }
-          : {}),
-        start_date: start,
-        end_date: end,
-        ...(data.isActive !== undefined ? { is_active: data.isActive } : {}),
-        scope,
-        store_codes: storeCodes,
-        ...(data.usageCount !== undefined ? { usage_count: Number(data.usageCount) } : {}),
-        updated_at: new Date(),
-      }
+    return PromotionsRepository.update(id, {
+      ...(data.code !== undefined ? { code: data.code } : {}),
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.type !== undefined ? { type: normalizeDiscountType(data.type) } : {}),
+      ...(data.value !== undefined ? { value: data.value } : {}),
+      ...(data.minOrder !== undefined ? { min_order_value: Number(data.minOrder) } : {}),
+      ...(data.maxDiscount !== undefined
+        ? { max_discount: data.maxDiscount === null ? null : Number(data.maxDiscount) }
+        : {}),
+      start_date: start,
+      end_date: end,
+      ...(data.isActive !== undefined ? { is_active: data.isActive } : {}),
+      scope,
+      store_codes: storeCodes,
+      ...(data.usageCount !== undefined ? { usage_count: Number(data.usageCount) } : {}),
+      updated_at: new Date(),
     });
   },
 
   // 5. XÓA (Check xem đã dùng chưa - Tạm thời cho xóa hoặc Soft Delete tùy bạn)
   // Ở đây tôi làm xóa cứng cho đơn giản, sau này có bảng 'Order' thì check ràng buộc sau
   deletePromotion: async (id: number) => {
-    return prisma.promotions.delete({
-      where: { id }
-    });
+    return PromotionsRepository.delete(id);
   },
 
   // 6. Helper: Kiểm tra mã có hợp lệ không (Dùng cho máy POS sau này)
   validateCode: async (code: string, orderTotal: number) => {
-    const promo = await prisma.promotions.findUnique({ where: { code } });
+    const promo = await PromotionsRepository.findByCode(code);
     
     if (!promo) throw new Error('Invalid coupon code.');
     if (!promo.is_active) throw new Error('This promotion is inactive.');

@@ -1,6 +1,5 @@
-import prisma from '../../db/prisma';
+import { CategoriesRepository } from './categories.repository';
 
-// DTO
 interface CreateCategoryDto {
   name: string;
   description?: string;
@@ -11,21 +10,14 @@ interface UpdateCategoryDto {
   description?: string;
 }
 
-/**
- * Tạo Danh mục mới
- */
 export const createCategory = async (data: CreateCategoryDto, adminId: string) => {
+  void data;
   void adminId;
   throw new Error('Not supported: categories are derived from products.category');
 };
 
-/**
- * Lấy danh sách Danh mục
- */
 export const getAllCategories = async () => {
-  const products = await prisma.products.findMany({
-    select: { category: true },
-  });
+  const products = await CategoriesRepository.findProductCategories();
 
   const counts: Record<string, number> = {};
   for (const p of products) {
@@ -44,19 +36,13 @@ export const getAllCategories = async () => {
     }));
 };
 
-/**
- * Lấy chi tiết
- */
 export const getCategoryById = async (id: string) => {
   const categories = await getAllCategories();
-  const found = categories.find(c => c.id === id);
+  const found = categories.find((c) => c.id === id);
   if (!found) throw new Error('Category not found');
   return found;
 };
 
-/**
- * Update Danh mục
- */
 export const updateCategory = async (id: string, data: UpdateCategoryDto, adminId: string) => {
   void id;
   void data;
@@ -64,9 +50,6 @@ export const updateCategory = async (id: string, data: UpdateCategoryDto, adminI
   throw new Error('Not supported: categories are derived from products.category');
 };
 
-/**
- * Xóa Danh mục
- */
 export const deleteCategory = async (id: string, adminId: string) => {
   void id;
   void adminId;
