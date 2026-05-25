@@ -5,7 +5,7 @@
  * guards, and side effects. Each state defines allowed transitions and actions.
  */
 
-import { logger } from '../../utils/logger';
+import { logger } from '../../lib/monitoring/logger';
 
 // ============================================================================
 // STATE TYPES
