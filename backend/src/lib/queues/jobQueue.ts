@@ -30,6 +30,10 @@ export enum JobType {
   PROCESS_REFUND = 'process_refund',
   INVALIDATE_CACHE = 'invalidate_cache',
   RECONCILE_PAYMENTS = 'reconcile_payments',
+  CALCULATE_PRICING = 'calculate_pricing',
+  PRELOAD_VARIANTS = 'preload_variants',
+  PROCESS_LOYALTY_ACCRUAL = 'process_loyalty_accrual',
+  PROCESS_LOYALTY_TIER_UPGRADE = 'process_loyalty_tier_upgrade',
 }
 
 // Create queues for different job types
@@ -53,6 +57,18 @@ const queues: Record<JobType, Queue> = {
     redis: redisConfig,
   }),
   [JobType.RECONCILE_PAYMENTS]: new Bull(JobType.RECONCILE_PAYMENTS, {
+    redis: redisConfig,
+  }),
+  [JobType.CALCULATE_PRICING]: new Bull(JobType.CALCULATE_PRICING, {
+    redis: redisConfig,
+  }),
+  [JobType.PRELOAD_VARIANTS]: new Bull(JobType.PRELOAD_VARIANTS, {
+    redis: redisConfig,
+  }),
+  [JobType.PROCESS_LOYALTY_ACCRUAL]: new Bull(JobType.PROCESS_LOYALTY_ACCRUAL, {
+    redis: redisConfig,
+  }),
+  [JobType.PROCESS_LOYALTY_TIER_UPGRADE]: new Bull(JobType.PROCESS_LOYALTY_TIER_UPGRADE, {
     redis: redisConfig,
   }),
 };

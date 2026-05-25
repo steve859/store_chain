@@ -1,12 +1,18 @@
+// ASR-M3: Must be imported FIRST for auto-instrumentation to work
+import './lib/monitoring/tracing';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import { setupSocketHandlers } from './events/socket';
+import { ioMiddleware } from './middlewares/io.middleware';
 import dotenv from 'dotenv';
 import app from './app';
 import { startScheduler } from './modules/cron/scheduler';
 import { closeQueues } from './lib/queues/jobQueue';
 import { logger } from './lib/monitoring/logger';
+import { pricingEngine } from './lib/cache/pricingEngine';
+import { warmupPromotionCache } from './lib/cache/promotionRules';
+import { analyticsAggregator } from './modules/reports/analyticsAggregator';
 
 // Import all job processors to register them
 import './lib/queues/processors';
@@ -31,8 +37,31 @@ const startServer = async () => {
 
   setupSocketHandlers(io);
   app.set('io', io);
+  app.use(ioMiddleware(io));
 
   await startScheduler();
+
+  // Warmup pricing engine cache asynchronously
+  pricingEngine
+    .warmupEngineCache()
+    .catch(error => {
+      logger.warn({
+        message: 'Pricing engine warmup failed on startup',
+        errorMessage: error.message,
+      });
+    });
+
+  // Warmup promotion cache asynchronously
+  warmupPromotionCache()
+    .catch(error => {
+      logger.warn({
+        message: 'Promotion cache warmup failed on startup',
+        errorMessage: error.message,
+      });
+    });
+
+  // Start Real-time Data Aggregation Pipeline (CQRS for Analytics)
+  analyticsAggregator.start();
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     logger.info({
@@ -41,32 +70,47 @@ const startServer = async () => {
       environment: process.env.NODE_ENV || 'development',
       features: [
         '✅ Job Queue (Bull.js)',
+        '✅ Pricing Engine (L1 In-Memory Cache)',
         '✅ Monitoring (Prometheus)',
         '✅ Error Tracking (Sentry)',
         '✅ Security Headers',
         '✅ Rate Limiting',
         '✅ Socket.IO Real-time',
+        '✅ OpenTelemetry Distributed Tracing (ASR-M3)',
+        '✅ ELK Centralized Logging (ASR-M3)',
+        '✅ CQRS Analytics Pipeline (ASR-P2)',
+        '✅ Saga Orchestrator (ASR-P3)',
       ],
     });
 
     console.log(`
-╔════════════════════════════════════════╗
-║   Store Chain API - Phase 1 Ready      ║
-╠════════════════════════════════════════╣
-║ 🚀 Server:   http://0.0.0.0:${PORT}                    ║
-║ 📊 Metrics:  /metrics                  ║
-║ 📋 Swagger:  /api-docs                 ║
-║ 💚 Health:   /health                   ║
-║                                        ║
-║ Phase 1 Enhancements Active:           ║
-║ ✅ Job Queue (Bull.js + Redis)        ║
-║ ✅ Structured Logging (Pino)          ║
-║ ✅ Prometheus Metrics                 ║
-║ ✅ Sentry Error Tracking              ║
-║ ✅ Security Headers (Helmet)          ║
-║ ✅ Rate Limiting                      ║
-║ ✅ Request Monitoring                 ║
-╚════════════════════════════════════════╝
+╔════════════════════════════════════════════╗
+║   Store Chain API - ASR Ready              ║
+╠════════════════════════════════════════════╣
+║ 🚀 Server:   http://0.0.0.0:${PORT}       ║
+║ 📊 Metrics:  /metrics                      ║
+║ 📋 Swagger:  /api-docs                     ║
+║ 💚 Health:   /health                       ║
+║                                            ║
+║ ASR-P1 (<100ms Pricing Lookup):            ║
+║ ✅ L1 In-Memory Cache (<1ms)               ║
+║ ✅ L2 Redis Response Cache (~5ms)          ║
+║ ✅ L3 DB Fallback (<50ms)                  ║
+║                                            ║
+║ ASR-M3 (Observability):                    ║
+║ ✅ OpenTelemetry + Jaeger Tracing          ║
+║ ✅ ELK Centralized Logging                 ║
+║ ✅ Prometheus Metrics                      ║
+║                                            ║
+║ Additional Features:                       ║
+║ ✅ Saga Pattern Checkout (ASR-P3)          ║
+║ ✅ CQRS Analytics (ASR-P2)                 ║
+║ ✅ Redis Pub/Sub Event Bus (ASR-S1)        ║
+║ ✅ PII Encryption (ASR-SEC5)               ║
+║ ✅ Optimistic Locking (ASR-R3)             ║
+║ ✅ Terraform IaC (ASR-R1/R2)               ║
+║ ✅ CI/CD Blue-Green Deploy (ASR-O2)         ║
+╚════════════════════════════════════════════╝
     `);
   });
 

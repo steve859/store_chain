@@ -4,6 +4,8 @@ import prisma from '../../db/prisma';
 import { authenticateToken } from '../../middlewares/auth.middleware';
 import { requireActiveStore, requireActiveStoreUnlessAdmin } from '../../middlewares/storeScope.middleware';
 import { invalidateCatalogCache } from '../../lib/cache/catalog';
+import { eventBus, type InventoryUpdateEvent } from '../../lib/events/eventBus';
+import { broadcastInventoryUpdate, enqueueInventorySyncJob } from '../../lib/events/inventoryPublisher';
 
 const router = Router();
 
@@ -307,6 +309,8 @@ router.post('/receive', async (req, res, next) => {
         where: { store_id: storeIdNum, variant_id: variantIdNum },
       });
 
+      const previousQuantity = new Prisma.Decimal(existingInventory?.quantity ?? 0);
+
       const inventory = existingInventory
         ? await tx.inventories.update({
             where: { id: existingInventory.id },
@@ -351,10 +355,34 @@ router.post('/receive', async (req, res, next) => {
         },
       });
 
-      return { inventory, lot, movement };
+      return { inventory, lot, movement, previousQuantity };
     });
 
     await invalidateCatalogCache(storeIdNum);
+
+    // Publish inventory update event
+    const event: InventoryUpdateEvent = {
+      storeId: storeIdNum,
+      variantId: variantIdNum,
+      quantity: Number(result.inventory.quantity),
+      reserved: Number(result.inventory.reserved ?? 0),
+      previousQuantity: Number(result.previousQuantity),
+      change: Number(qty),
+      movementType: 'receive',
+      reason: reason ? String(reason) : 'Stock receive',
+      timestamp: new Date(),
+    };
+
+    // Broadcast via WebSocket if available
+    const io = req.app.get('io');
+    if (io) {
+      broadcastInventoryUpdate(io, event);
+    }
+
+    // Publish to event bus and queue sync job
+    await eventBus.publish('inventory.updated', event);
+    await enqueueInventorySyncJob(event);
+
     return res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -400,6 +428,8 @@ router.post('/adjust', async (req, res, next) => {
       // Resolve delta
       const deltaDec = hasDelta ? toDecimal(delta) : toDecimal(setTo);
 
+      const previousQuantity = new Prisma.Decimal(inventory?.quantity ?? 0);
+
       // Auto-create inventory if missing (only supports positive adjustments or setTo)
       if (!inventory) {
         const initialQty = hasDelta ? deltaDec : deltaDec;
@@ -438,7 +468,7 @@ router.post('/adjust', async (req, res, next) => {
           },
         });
 
-        return { inventory: created, movement };
+        return { inventory: created, movement, previousQuantity };
       }
 
       const currentQty = new Prisma.Decimal(inventory.quantity ?? 0);
@@ -480,10 +510,36 @@ router.post('/adjust', async (req, res, next) => {
         },
       });
 
-      return { inventory: updated, movement };
+      return { inventory: updated, movement, previousQuantity };
     });
 
     await invalidateCatalogCache(storeIdNum);
+
+    // Publish inventory update event
+    const currentQty = new Prisma.Decimal(result.inventory.quantity ?? 0);
+    const change = currentQty.minus(result.previousQuantity);
+    const event: InventoryUpdateEvent = {
+      storeId: storeIdNum,
+      variantId: variantIdNum,
+      quantity: Number(result.inventory.quantity),
+      reserved: Number(result.inventory.reserved ?? 0),
+      previousQuantity: Number(result.previousQuantity),
+      change: Number(change),
+      movementType: 'adjustment',
+      reason: reason ? String(reason) : 'Inventory adjustment',
+      timestamp: new Date(),
+    };
+
+    // Broadcast via WebSocket if available
+    const io = req.app.get('io');
+    if (io) {
+      broadcastInventoryUpdate(io, event);
+    }
+
+    // Publish to event bus and queue sync job
+    await eventBus.publish('inventory.updated', event);
+    await enqueueInventorySyncJob(event);
+
     return res.status(201).json(result);
   } catch (err) {
     next(err);
