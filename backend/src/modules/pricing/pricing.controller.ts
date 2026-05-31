@@ -1,5 +1,35 @@
 import { Request, Response } from 'express';
 import { pricingService } from './pricing.service';
+import { AuditLogsService } from '../audit_logs/audit_logs.service';
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const getActorUserId = (req: Request): number | undefined => {
+  const userId = Number(asRecord(req.user).userId);
+  return Number.isFinite(userId) ? userId : undefined;
+};
+
+const getAuditSource = (req: Request) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent') ?? null,
+});
+
+const writeAuditLog = async (params: Parameters<typeof AuditLogsService.createLog>[0]) => {
+  try {
+    await AuditLogsService.createLog(params);
+  } catch {
+    // Audit logging is best-effort for this phase.
+  }
+};
+
+const deriveDemandMetricsId = (storeId: number, input: Record<string, unknown>) => {
+  const productVariantId = input.productVariantId || 0;
+  const categoryId = input.categoryId || 0;
+  const dayOfWeek = input.dayOfWeek || 0;
+  const hourOfDay = input.hourOfDay || new Date().getHours();
+  return `${storeId}-${productVariantId}-${categoryId}-${dayOfWeek}-${hourOfDay}`;
+};
 
 /**
  * Create a new pricing rule
@@ -32,6 +62,30 @@ export const createPricingRuleHandler = async (req: Request, res: Response) => {
       effectiveFrom: new Date(effectiveFrom),
       effectiveUntil: effectiveUntil ? new Date(effectiveUntil) : undefined,
       ...rest,
+    });
+
+    await writeAuditLog({
+      action: 'PRICING_RULE_CREATED',
+      objectType: 'pricing_rule',
+      objectId: rule?.id !== undefined && rule?.id !== null ? String(rule.id) : undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: rule,
+        metadata: {
+          ruleName,
+          ruleType,
+          productVariantId: req.body?.productVariantId,
+          categoryId: req.body?.categoryId,
+          priority: priority || 0,
+          effectiveFrom,
+          effectiveUntil: effectiveUntil ?? null,
+          minPrice: minPrice ?? null,
+          maxPrice: maxPrice ?? null,
+        },
+      },
     });
 
     res.status(201).json({
@@ -163,6 +217,27 @@ export const updateDemandMetricsHandler = async (req: Request, res: Response) =>
       ...rest,
     });
 
+    await writeAuditLog({
+      action: 'DEMAND_METRICS_UPDATED',
+      objectType: 'demand_metrics',
+      objectId: deriveDemandMetricsId(storeId, { productVariantId, categoryId, dayOfWeek, hourOfDay: rest.hourOfDay }),
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        after: metrics,
+        metadata: {
+          productVariantId,
+          categoryId,
+          dayOfWeek,
+          hourOfDay: rest.hourOfDay,
+          demandLevel,
+          inventoryLevel,
+        },
+      },
+    });
+
     res.json({
       message: 'Demand metrics updated',
       metrics,
@@ -198,6 +273,26 @@ export const recordCompetitorPriceHandler = async (req: Request, res: Response) 
       parseFloat(competitorPrice),
       parseFloat(ourPrice)
     );
+
+    await writeAuditLog({
+      action: 'COMPETITOR_PRICE_RECORDED',
+      objectType: 'competitor_price',
+      objectId: undefined,
+      userId: getActorUserId(req),
+      payload: {
+        result: 'success',
+        source: getAuditSource(req),
+        storeId,
+        metadata: {
+          productSku,
+          competitorName,
+          competitorPrice,
+          ourPrice,
+          isCompetitive: result.isCompetitive,
+          priceDiffPercent: result.priceDiffPercent,
+        },
+      },
+    });
 
     res.status(201).json({
       message: 'Competitor price recorded',

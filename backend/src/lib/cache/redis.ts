@@ -1,6 +1,8 @@
-import Redis from 'ioredis';
+import Redis, { Cluster } from 'ioredis';
 
-let redis: Redis | null = null;
+type RedisClient = Redis | Cluster;
+
+let redis: RedisClient | null = null;
 let warned = false;
 
 const getRedisUrl = (): string | null => {
@@ -8,18 +10,47 @@ const getRedisUrl = (): string | null => {
   return url && url.trim() !== '' ? url.trim() : null;
 };
 
-export const getRedis = (): Redis | null => {
+export const getRedis = (): RedisClient | null => {
+  const clusterNodesRaw = process.env.REDIS_CLUSTER_NODES;
+  const clusterNodes = clusterNodesRaw
+    ? clusterNodesRaw
+        .split(',')
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0)
+    : [];
+
   const url = getRedisUrl();
-  if (!url) return null;
+  if (!url && clusterNodes.length === 0) return null;
 
   if (redis) return redis;
 
   try {
-    redis = new Redis(url, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    });
+    if (clusterNodes.length > 0) {
+      const nodes = clusterNodes.map((node) => {
+        const [host, portRaw] = node.split(':');
+        return {
+          host,
+          port: Number(portRaw ?? 6379),
+        };
+      });
+
+      redis = new Cluster(nodes, {
+        scaleReads: 'slave',
+        redisOptions: {
+          lazyConnect: true,
+          maxRetriesPerRequest: 1,
+          offlineQueue: false,
+        },
+      });
+    } else if (url) {
+      redis = new Redis(url, {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+      });
+    } else {
+      return null;
+    }
 
     redis.on('error', (err: unknown) => {
       if (!warned) {
@@ -74,24 +105,44 @@ export const cacheSetJson = async (key: string, value: unknown, ttlSeconds: numb
   }
 };
 
+const scanAndDeleteNode = async (node: Redis, pattern: string): Promise<number> => {
+  let cursor = '0';
+  let deleted = 0;
+
+  do {
+    const [nextCursor, keys] = await node.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
+    cursor = nextCursor;
+
+    if (keys.length > 0) {
+      const pipeline = node.pipeline();
+      for (const key of keys) {
+        pipeline.del(key);
+      }
+      const results = await pipeline.exec();
+      const deletedOnBatch = results?.reduce((sum, row) => {
+        const value = Array.isArray(row) ? row[1] : 0;
+        const num = typeof value === 'number' ? value : 0;
+        return sum + num;
+      }, 0) ?? 0;
+      deleted += deletedOnBatch;
+    }
+  } while (cursor !== '0');
+
+  return deleted;
+};
+
 export const cacheDeleteByPattern = async (pattern: string): Promise<number> => {
   const client = getRedis();
   if (!client) return 0;
 
   try {
-    let cursor = '0';
-    let deleted = 0;
+    if (client instanceof Cluster) {
+      const masters = client.nodes('master');
+      const deletedByNode = await Promise.all(masters.map((node) => scanAndDeleteNode(node, pattern)));
+      return deletedByNode.reduce((sum, current) => sum + current, 0);
+    }
 
-    do {
-      const [nextCursor, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
-      cursor = nextCursor;
-
-      if (keys.length > 0) {
-        deleted += await client.del(...keys);
-      }
-    } while (cursor !== '0');
-
-    return deleted;
+    return scanAndDeleteNode(client, pattern);
   } catch {
     return 0;
   }

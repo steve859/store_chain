@@ -59,11 +59,12 @@ Derived from:
 
 # 2. Scalability ASRs
 
-## ASR-S1 — Support 100+ Stores Concurrently
+## ASR-S1 — Support 100+ Stores Concurrently ok
 
 ### Requirement
 
 System phải hỗ trợ centralized management cho hơn 100 stores đồng thời. 
+
 
 ### Architectural Impact
 
@@ -80,7 +81,7 @@ System phải hỗ trợ centralized management cho hơn 100 stores đồng th�
 
 ---
 
-## ASR-S2 — Real-time Inventory Synchronization Across Stores
+## ASR-S2 — Real-time Inventory Synchronization Across Stores ok
 
 ### Requirement
 
@@ -101,7 +102,7 @@ Inventory updates phải synchronize near real-time giữa các store.
 
 ---
 
-## ASR-S3 — Dynamic Pricing Engine Must Scale
+## ASR-S3 — Dynamic Pricing Engine Must Scale ok
 
 ### Requirement
 
@@ -124,7 +125,7 @@ Pricing engine recalculates prices every 15 minutes for potentially thousands of
 
 # 3. Performance ASRs
 
-## ASR-P1 — Dynamic Price Lookup <100ms
+## ASR-P1 — Dynamic Price Lookup <100ms ok
 
 ### Requirement
 
@@ -145,7 +146,7 @@ Dynamic pricing API phải đảm bảo latency dưới 100ms.
 
 ---
 
-## ASR-P2 — Real-time Dashboard Analytics
+## ASR-P2 — Real-time Dashboard Analytics ok 
 
 ### Requirement
 

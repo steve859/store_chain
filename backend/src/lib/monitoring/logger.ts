@@ -1,29 +1,92 @@
 import pino from 'pino';
 
 /**
- * Structured logging system using Pino
+ * ASR-M3: Structured Logging with ELK Integration
+ *
  * Features:
- * - Structured JSON logs in production
+ * - Structured JSON logs in production (ELK-ready)
  * - Pretty-printed logs in development
- * - Context injection (userId, storeId, requestId)
+ * - Elasticsearch transport in production (via pino-elasticsearch)
+ * - Context injection (userId, storeId, requestId, traceId)
  * - Performance tracking
  */
 
 const isDevelopment = process.env.NODE_ENV === 'development';
+const ELK_ENABLED = process.env.ELK_ENABLED === 'true';
+const ELASTICSEARCH_URL = process.env.ELASTICSEARCH_URL || 'http://localhost:9200';
+const ELK_INDEX = process.env.ELK_INDEX || 'store-chain-logs';
 
-export const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: isDevelopment
-    ? {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname',
-        },
+// Build transport targets
+function buildTransport(): pino.TransportMultiOptions | pino.TransportSingleOptions | undefined {
+  const targets: pino.TransportTargetOptions[] = [];
+
+  if (isDevelopment) {
+    targets.push({
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:standard',
+        ignore: 'pid,hostname',
+      },
+      level: process.env.LOG_LEVEL || 'debug',
+    });
+  }
+
+  if (ELK_ENABLED) {
+    targets.push({
+      target: 'pino-elasticsearch',
+      options: {
+        index: ELK_INDEX,
+        node: ELASTICSEARCH_URL,
+        flushBytes: 1000,
+        flushInterval: 5000,
+        // Elasticsearch mapping – ECS-compatible
+        esVersion: 8,
+        op_type: 'create',
+      },
+      level: process.env.LOG_LEVEL || 'info',
+    });
+  }
+
+  if (targets.length === 0) return undefined;
+  if (targets.length === 1) return { target: targets[0].target, options: targets[0].options };
+  return { targets };
+}
+
+export const logger = pino(
+  {
+    level: process.env.LOG_LEVEL || 'info',
+    // Add trace context fields for correlation with Jaeger
+    mixin() {
+      // Try to extract OpenTelemetry trace context
+      try {
+        const { trace } = require('@opentelemetry/api');
+        const span = trace.getActiveSpan?.();
+        if (span) {
+          const ctx = span.spanContext();
+          return {
+            traceId: ctx.traceId,
+            spanId: ctx.spanId,
+          };
+        }
+      } catch {
+        // OTel not available, skip
       }
-    : undefined,
-});
+      return {};
+    },
+    // Standard fields for ECS (Elastic Common Schema)
+    formatters: {
+      level(label) {
+        return { level: label };
+      },
+    },
+    timestamp: pino.stdTimeFunctions.isoTime,
+  },
+  pino.transport(buildTransport() || {
+    target: 'pino/file',
+    options: { destination: 1 }, // stdout
+  }),
+);
 
 /**
  * Log structured request information

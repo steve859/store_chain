@@ -1,0 +1,66 @@
+# ASR-O2: Production Dockerfile
+# Multi-stage build for optimized, secure production image
+
+# ─── Stage 1: Build ────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+ARG BUILD_DATE
+ARG GIT_SHA
+ARG VERSION
+
+WORKDIR /app
+
+# Copy dependency files first (better cache)
+COPY backend/package*.json ./
+COPY backend/prisma ./prisma
+COPY backend/prisma.config.ts ./
+
+# Install ALL deps (including devDependencies for build)
+RUN npm ci
+
+# Generate Prisma client
+RUN npx prisma generate --schema prisma/schema.prisma
+
+# Copy source and build
+COPY backend/ ./
+RUN npm run build
+
+# Remove devDependencies
+RUN npm prune --production
+
+# ─── Stage 2: Production ───────────────────────────────────────────────────
+FROM node:20-alpine AS production
+
+# Security: run as non-root user
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -S appuser -u 1001 -G appgroup
+
+WORKDIR /app
+
+# Copy only production artifacts
+COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
+COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
+COPY --from=builder --chown=appuser:appgroup /app/prisma ./prisma
+COPY --from=builder --chown=appuser:appgroup /app/package.json ./
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health/ready || exit 1
+
+# Labels for traceability
+LABEL org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.title="store-chain-backend" \
+      org.opencontainers.image.description="Store Chain Backend API"
+
+# Environment defaults
+ENV NODE_ENV=production \
+    PORT=3000
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 3000
+
+CMD ["node", "dist/server.js"]
