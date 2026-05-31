@@ -10,3 +10,17 @@ export async function getDashboardStats({ storeId, from, to } = {}) {
   });
   return res.data;
 }
+
+export async function getRevenueChart({ storeId, from, to } = {}) {
+  const res = await axiosClient.get("/reports/revenue-chart", {
+    params: { storeId, from, to },
+  });
+  return res.data;
+}
+
+export async function getTopProducts({ storeId, from, to } = {}) {
+  const res = await axiosClient.get("/reports/top-products", {
+    params: { storeId, from, to },
+  });
+  return res.data;
+}

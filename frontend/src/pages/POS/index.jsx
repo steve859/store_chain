@@ -14,6 +14,7 @@ import { apiPromotionToUi, listPromotions } from "../../services/promotions";
 import { checkoutSaleOffline, listPosCatalogOffline, getPendingCount, forceSyncNow } from "../../services/posSalesOffline";
 import { initAutoSync, onSyncEvent, getOnlineStatus } from "../../lib/syncEngine";
 import { listPosCatalog } from "../../services/posSales";
+import { initSocket, disconnectSocket, onInventoryUpdate } from "../../lib/socketClient";
 
 // Promotions are loaded from backend
 
@@ -80,6 +81,58 @@ const POS = () => {
         getPendingCount().then(setPendingTxnCount);
 
         return unsubscribe;
+    }, []);
+
+    // ASR-S2: Real-time Inventory WebSocket Sync
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        const activeStoreId = localStorage.getItem('activeStoreId');
+        
+        if (token && activeStoreId) {
+            initSocket(token, activeStoreId);
+            
+            const unsubscribeInventory = onInventoryUpdate((data) => {
+                // data: { variantId, quantity, reserved, ... }
+                setPosProducts(prev => {
+                    const idx = prev.findIndex(p => String(p.id) === String(data.variantId));
+                    if (idx === -1) return prev;
+                    
+                    const newProducts = [...prev];
+                    newProducts[idx] = {
+                        ...newProducts[idx],
+                        stock: Number(data.quantity)
+                    };
+                    return newProducts;
+                });
+                
+                // Update cart item if exists
+                setCart(prev => {
+                    const idx = prev.findIndex(p => String(p.id) === String(data.variantId));
+                    if (idx === -1) return prev;
+                    
+                    const newCart = [...prev];
+                    const newStock = Number(data.quantity);
+                    // If cart has more than new stock, adjust it
+                    if (newCart[idx].quantity > newStock) {
+                         newCart[idx] = {
+                            ...newCart[idx],
+                            quantity: newStock
+                         };
+                         // Notify user
+                         // alert(`⚠️ Số lượng "${newCart[idx].name}" trong giỏ đã được cập nhật thành ${newStock} do kho thay đổi!`);
+                    }
+                    if (newCart[idx].quantity <= 0) {
+                        return newCart.filter(item => String(item.id) !== String(data.variantId));
+                    }
+                    return newCart;
+                });
+            });
+            
+            return () => {
+                unsubscribeInventory();
+                disconnectSocket();
+            };
+        }
     }, []);
 
     useEffect(() => {
