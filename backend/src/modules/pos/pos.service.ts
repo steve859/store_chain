@@ -67,7 +67,7 @@ const isForbiddenActiveStore = (value: unknown) => '__forbiddenActiveStore' in a
 
 const buildShiftResponse = async (storeId: number, shift: Record<string, unknown>, closedAt?: Date | null, differenceClosingCash?: number | null) => {
   const summary = await PosService.computeShiftSummary(storeId, shift.opened_at as Date, closedAt);
-  const expectedCash = decimalToNumber(shift.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
+  const expectedCash = summary.cashSales + summary.cashIn - summary.cashOut;
   const difference = differenceClosingCash !== undefined && differenceClosingCash !== null ? differenceClosingCash - expectedCash : undefined;
 
   return {
@@ -148,7 +148,7 @@ export const PosService = {
     const existing = await PosRepository.getOpenShift(storeId);
     if (existing) {
       const summary = await PosService.computeShiftSummary(storeId, existing.opened_at);
-      const expectedCash = decimalToNumber(existing.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
+      const expectedCash = summary.cashSales + summary.cashIn - summary.cashOut;
       return {
         status: 'conflict' as const,
         body: {
@@ -225,7 +225,7 @@ export const PosService = {
     });
 
     const summary = await PosService.computeShiftSummary(storeId, open.opened_at, closedAt);
-    const expectedCash = decimalToNumber(open.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
+    const expectedCash = summary.cashSales + summary.cashIn - summary.cashOut;
     const difference = closingCash - expectedCash;
     const noteText = note ?? '';
     const shiftResponse = {
@@ -329,7 +329,7 @@ export const PosService = {
     });
 
     const summary = await PosService.computeShiftSummary(storeId, open.opened_at);
-    const expectedCash = decimalToNumber(open.opening_cash) + summary.cashSales + summary.cashIn - summary.cashOut;
+    const expectedCash = summary.cashSales + summary.cashIn - summary.cashOut;
     const reasonText = reason ?? '';
     const movementRecord = asRecord(movement);
     await writeAuditLog({

@@ -132,7 +132,15 @@ export const ShiftProvider = ({ children }) => {
     };
 
     const requestOpenModal = () => setShowOpenModal(true);
-    const requestCloseModal = () => setShowCloseModal(true);
+    const requestCloseModal = async () => {
+        const { getPendingCount } = await import("../../services/posSalesOffline");
+        const pending = await getPendingCount();
+        if (pending > 0) {
+            alert(`⚠️ Không thể đóng ca!\nBạn đang có ${pending} đơn hàng offline chưa đồng bộ lên hệ thống.\nVui lòng kết nối mạng và đồng bộ thành công trước khi đóng ca để đảm bảo tính đúng doanh thu.`);
+            return;
+        }
+        setShowCloseModal(true);
+    };
 
     return (
         <ShiftContext.Provider
