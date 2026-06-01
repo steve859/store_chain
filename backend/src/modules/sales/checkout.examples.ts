@@ -66,7 +66,7 @@ const happyPathExample = async (apiClient: any) => {
     `/api/v1/pos/checkout/${checkoutId}/checkout`,
     {
       paymentMethod: 'card',
-      paidAmount: checkout.data.context.totalAmount,
+      paidAmount: discount.data.context.totalAmount,
     },
   );
   console.log(`✓ Checkout initiated`);
@@ -283,7 +283,7 @@ const stateTransitionRulesExample = async (apiClient: any) => {
       quantity: 1,
     });
     console.log(`✓ RULE PASSED: Can add items in CART_OPEN state`);
-  } catch (err) {
+  } catch (err: any) {
     console.log(`✗ RULE FAILED: ${err.message}`);
   }
   console.log();
@@ -295,7 +295,7 @@ const stateTransitionRulesExample = async (apiClient: any) => {
       paidAmount: 29.99,
     });
     console.log(`✓ RULE PASSED: Can checkout with items in cart`);
-  } catch (err) {
+  } catch (err: any) {
     console.log(`✗ RULE FAILED: ${err.message}`);
   }
   console.log();
@@ -307,7 +307,7 @@ const stateTransitionRulesExample = async (apiClient: any) => {
       quantity: 1,
     });
     console.log(`✗ RULE FAILED: Should not allow adding items after payment initiated`);
-  } catch (err) {
+  } catch (err: any) {
     console.log(`✓ RULE PASSED: Cannot add items in PAYMENT_PROCESSING state`);
     console.log(`  Error: ${err.message}`);
   }
@@ -326,7 +326,7 @@ const stateTransitionRulesExample = async (apiClient: any) => {
       },
     );
     console.log(`✗ RULE FAILED: Should not allow checkout with empty cart`);
-  } catch (err) {
+  } catch (err: any) {
     console.log(`✓ RULE PASSED: Cannot checkout with empty cart`);
     console.log(`  Error: ${err.message}`);
   }

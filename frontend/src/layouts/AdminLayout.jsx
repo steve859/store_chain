@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { FaThLarge, FaStore, FaBox, FaUserTie, FaShoppingCart, FaSignOutAlt, FaExclamationCircle, FaUsers, FaTruck, FaWarehouse, FaExchangeAlt, FaTags } from 'react-icons/fa';
+import { FaThLarge, FaStore, FaBox, FaUserTie, FaShoppingCart, FaSignOutAlt, FaExclamationCircle, FaUsers, FaTruck, FaWarehouse, FaExchangeAlt, FaTags, FaShieldAlt, FaUndo, FaStar, FaChartLine, FaCogs } from 'react-icons/fa';
 import { cn } from '../lib/utils';
 import Dashboard from '../pages/DashBoard';
 import Products from '../pages/Products';
@@ -12,7 +12,14 @@ import Users from '../pages/Users';
 import PurchaseOrders from '../pages/PurchaseOrders';
 import InventoryAdjustment from '../pages/InventoryAdjustment';
 import Transfer from '../pages/Transfer';
+import Categories from '../pages/Categories';
+import Suppliers from '../pages/Suppliers';
 import Promotions from '../pages/Promotions';
+import AuditLogs from '../pages/AuditLogs';
+import Loyalty from '../pages/Loyalty';
+import Returns from '../pages/Returns';
+import Pricing from '../pages/Pricing';
+import Settings from '../pages/Settings';
 import StoreSwitcher from '../components/StoreSwitcher';
 
 const AdminLayout = () => {
@@ -37,14 +44,20 @@ const AdminLayout = () => {
     { id: "dashboard", name: "Dashboard", icon: <FaThLarge />, component: Dashboard },
     { id: "shops", name: "Cửa Hàng", icon: <FaStore />, component: Shops },
     { id: "products", name: "Sản Phẩm", icon: <FaBox />, component: Products },
+    { id: "categories", name: "Danh Mục", icon: <FaTags />, component: Categories },
+    { id: "suppliers", name: "Nhà Cung Cấp", icon: <FaTruck />, component: Suppliers },
     { id: "inventory", name: "Điều Chỉnh Kho", icon: <FaWarehouse />, component: InventoryAdjustment },
-    { id: "purchase", name: "Nhập Hàng", icon: <FaTruck />, component: PurchaseOrders },
+    { id: "purchase", name: "Đặt Hàng NCC", icon: <FaShoppingCart />, component: PurchaseOrders },
     { id: "transfer", name: "Chuyển Kho", icon: <FaExchangeAlt />, component: Transfer },
     { id: "promotions", name: "Khuyến mãi", icon: <FaTags />, component: Promotions },
     { id: "orders", name: "Đơn Hàng", icon: <FaShoppingCart />, component: Orders },
+    { id: "returns", name: "Trả Hàng", icon: <FaUndo />, component: Returns },
     { id: "users", name: "Nhân sự", icon: <FaUsers />, component: Users },
-    // { id: "employees", name: "Nhân Viên", icon: <FaUserTie />, component: Employee },
+    { id: "loyalty", name: "Khách hàng", icon: <FaStar />, component: Loyalty },
+    { id: "pricing", name: "Định Giá Động", icon: <FaChartLine />, component: Pricing },
     { id: "complaints", name: "Khiếu Nại", icon: <FaExclamationCircle />, component: ComplaintsAdmin },
+    { id: "auditLogs", name: "Lịch sử bảo mật", icon: <FaShieldAlt />, component: AuditLogs },
+    { id: "settings", name: "Cấu hình", icon: <FaCogs />, component: Settings },
   ];
 
   // Get the current component to render

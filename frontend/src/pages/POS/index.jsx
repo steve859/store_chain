@@ -6,11 +6,15 @@ import { Button } from "../../components/ui/button";
 import Modal from "../../components/ui/modal";
 import {
     FaShoppingCart, FaSearch, FaPlus, FaMinus, FaTrash, FaCreditCard, FaMoneyBillWave,
-    FaPause, FaHistory, FaUserAlt, FaTags, FaReceipt, FaBarcode, FaExclamationTriangle, FaCashRegister, FaLock
+    FaPause, FaHistory, FaUserAlt, FaTags, FaReceipt, FaBarcode, FaExclamationTriangle, FaCashRegister, FaLock,
+    FaWifi, FaSync
 } from "react-icons/fa";
 import { useShift } from "../../components/shift/ShiftManager";
 import { apiPromotionToUi, listPromotions } from "../../services/promotions";
-import { checkoutSale, listPosCatalog } from "../../services/posSales";
+import { checkoutSaleOffline, listPosCatalogOffline, getPendingCount, forceSyncNow } from "../../services/posSalesOffline";
+import { initAutoSync, onSyncEvent, getOnlineStatus } from "../../lib/syncEngine";
+import { listPosCatalog } from "../../services/posSales";
+import { initSocket, disconnectSocket, onInventoryUpdate } from "../../lib/socketClient";
 
 // Promotions are loaded from backend
 
@@ -30,6 +34,11 @@ const POS = () => {
     // Shift management
     const { isShiftOpen, requestOpenModal, refreshShift } = useShift();
 
+    // ASR-A2: Offline state
+    const [isOnline, setIsOnline] = useState(getOnlineStatus());
+    const [pendingTxnCount, setPendingTxnCount] = useState(0);
+    const [syncStatus, setSyncStatus] = useState(null); // null | 'syncing' | 'done' | 'error'
+
     const [posProducts, setPosProducts] = useState([]);
     const [posLoading, setPosLoading] = useState(false);
     const [posError, setPosError] = useState(null);
@@ -41,6 +50,91 @@ const POS = () => {
     const [availablePromotions, setAvailablePromotions] = useState([]);
     const [filterCategory, setFilterCategory] = useState("");
 
+    // ASR-A2: Initialize auto-sync and listen for events
+    useEffect(() => {
+        initAutoSync(30000); // Check every 30 seconds
+
+        const unsubscribe = onSyncEvent((event) => {
+            switch (event.type) {
+                case 'connection_restored':
+                    setIsOnline(true);
+                    break;
+                case 'connection_lost':
+                    setIsOnline(false);
+                    break;
+                case 'sync_start':
+                    setSyncStatus('syncing');
+                    break;
+                case 'sync_complete':
+                    setSyncStatus('done');
+                    getPendingCount().then(setPendingTxnCount);
+                    setTimeout(() => setSyncStatus(null), 3000);
+                    break;
+                case 'sync_error':
+                    setSyncStatus('error');
+                    setTimeout(() => setSyncStatus(null), 5000);
+                    break;
+            }
+        });
+
+        // Update pending count
+        getPendingCount().then(setPendingTxnCount);
+
+        return unsubscribe;
+    }, []);
+
+    // ASR-S2: Real-time Inventory WebSocket Sync
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        const activeStoreId = localStorage.getItem('activeStoreId');
+        
+        if (token && activeStoreId) {
+            initSocket(token, activeStoreId);
+            
+            const unsubscribeInventory = onInventoryUpdate((data) => {
+                // data: { variantId, quantity, reserved, ... }
+                setPosProducts(prev => {
+                    const idx = prev.findIndex(p => String(p.id) === String(data.variantId));
+                    if (idx === -1) return prev;
+                    
+                    const newProducts = [...prev];
+                    newProducts[idx] = {
+                        ...newProducts[idx],
+                        stock: Number(data.quantity)
+                    };
+                    return newProducts;
+                });
+                
+                // Update cart item if exists
+                setCart(prev => {
+                    const idx = prev.findIndex(p => String(p.id) === String(data.variantId));
+                    if (idx === -1) return prev;
+                    
+                    const newCart = [...prev];
+                    const newStock = Number(data.quantity);
+                    // If cart has more than new stock, adjust it
+                    if (newCart[idx].quantity > newStock) {
+                         newCart[idx] = {
+                            ...newCart[idx],
+                            quantity: newStock
+                         };
+                         // Notify user
+                         // alert(`⚠️ Số lượng "${newCart[idx].name}" trong giỏ đã được cập nhật thành ${newStock} do kho thay đổi!`);
+                    }
+                    if (newCart[idx].quantity <= 0) {
+                        return newCart.filter(item => String(item.id) !== String(data.variantId));
+                    }
+                    return newCart;
+                });
+            });
+            
+            return () => {
+                unsubscribeInventory();
+                disconnectSocket();
+            };
+        }
+    }, []);
+
     useEffect(() => {
         let isMounted = true;
 
@@ -48,7 +142,7 @@ const POS = () => {
             setPosLoading(true);
             setPosError(null);
             try {
-                const data = await listPosCatalog({ take: 200, skip: 0 });
+                const data = await listPosCatalogOffline({ take: 200, skip: 0 });
                 if (!isMounted) return;
                 const mapped = (data?.items || []).map((row) => {
                     const variant = row?.variant;
@@ -252,11 +346,20 @@ const POS = () => {
                     quantity: it.quantity,
                 })),
             };
-            const result = await checkoutSale(payload);
-            const saleId = result?.invoice?.id;
-            alert(
-                `Thanh toán thành công!\nMã đơn: ${saleId || "-"}\nTổng: ${formatCurrency(total)}\nPhương thức: ${paymentMethod === "cash" ? "Tiền mặt" : "Thẻ"}`,
-            );
+            const result = await checkoutSaleOffline(payload);
+
+            if (result._mode === 'offline') {
+                // Offline mode: show special message
+                setPendingTxnCount((c) => c + 1);
+                alert(
+                    `📴 Giao dịch đã lưu OFFLINE!\nMã: ${result.idempotencyKey.substring(0, 12)}...\nTổng: ${formatCurrency(total)}\nSẽ tự đồng bộ khi có mạng.`
+                );
+            } else {
+                const saleId = result?.invoice?.id;
+                alert(
+                    `Thanh toán thành công!\nMã đơn: ${saleId || "-"}\nTổng: ${formatCurrency(total)}\nPhương thức: ${paymentMethod === "cash" ? "Tiền mặt" : "Thẻ"}`
+                );
+            }
 
             try {
                 await refreshShift();
@@ -330,6 +433,40 @@ const POS = () => {
 
     return (
         <div className="h-[calc(100vh-120px)] flex gap-4 relative">
+            {/* ASR-A2: Offline Status Bar */}
+            <div className={`absolute top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-1.5 text-xs font-medium transition-colors ${
+                !isOnline ? 'bg-orange-500 text-white' :
+                syncStatus === 'syncing' ? 'bg-blue-500 text-white' :
+                syncStatus === 'done' ? 'bg-green-500 text-white' :
+                syncStatus === 'error' ? 'bg-red-500 text-white' :
+                'bg-green-100 text-green-800'
+            }`}>
+                <div className="flex items-center gap-2">
+                    <FaWifi className={!isOnline ? 'opacity-50' : ''} />
+                    <span>
+                        {!isOnline ? '📴 Chế độ Offline — Giao dịch sẽ lưu cục bộ' :
+                         syncStatus === 'syncing' ? '🔄 Đang đồng bộ...' :
+                         syncStatus === 'done' ? '✅ Đồng bộ hoàn tất' :
+                         syncStatus === 'error' ? '❌ Đồng bộ lỗi' :
+                         '🟢 Trực tuyến'}
+                    </span>
+                </div>
+                <div className="flex items-center gap-3">
+                    {pendingTxnCount > 0 && (
+                        <span className="bg-white bg-opacity-20 rounded-full px-2 py-0.5">
+                            {pendingTxnCount} đơn chờ đồng bộ
+                        </span>
+                    )}
+                    {pendingTxnCount > 0 && isOnline && (
+                        <button
+                            onClick={() => forceSyncNow()}
+                            className="flex items-center gap-1 bg-white bg-opacity-20 rounded px-2 py-0.5 hover:bg-opacity-30 transition"
+                        >
+                            <FaSync className="text-[10px]" /> Đồng bộ ngay
+                        </button>
+                    )}
+                </div>
+            </div>
             {/* Gray Overlay when shift not open */}
             {!isShiftOpen && (
                 <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">

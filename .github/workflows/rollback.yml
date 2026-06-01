@@ -1,0 +1,108 @@
+# ASR-O2: Manual Rollback Workflow
+# Allows manual rollback to previous deployment by switching ALB target groups
+
+name: Rollback Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for rollback'
+        required: true
+        type: string
+      target_environment:
+        description: 'Environment to rollback to (blue or green)'
+        required: true
+        type: choice
+        options:
+          - blue
+          - green
+
+env:
+  CLUSTER_NAME: store-chain-production
+
+jobs:
+  rollback:
+    name: Rollback to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Determine target group
+        id: target
+        run: |
+          if [ "${{ inputs.target_environment }}" = "blue" ]; then
+            echo "tg_arn=${{ secrets.BLUE_TARGET_GROUP_ARN }}" >> $GITHUB_OUTPUT
+            echo "service=store-chain-api-blue" >> $GITHUB_OUTPUT
+          else
+            echo "tg_arn=${{ secrets.GREEN_TARGET_GROUP_ARN }}" >> $GITHUB_OUTPUT
+            echo "service=store-chain-api-green" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ensure target service is running
+        run: |
+          DESIRED=$(aws ecs describe-services \
+            --cluster ${{ env.CLUSTER_NAME }} \
+            --services ${{ steps.target.outputs.service }} \
+            --query 'services[0].desiredCount' \
+            --output text)
+
+          if [ "$DESIRED" = "0" ] || [ "$DESIRED" = "None" ]; then
+            echo "⚠️  Target service has 0 instances, scaling up..."
+            aws ecs update-service \
+              --cluster ${{ env.CLUSTER_NAME }} \
+              --service ${{ steps.target.outputs.service }} \
+              --desired-count 2
+            
+            echo "⏳ Waiting for service to stabilize..."
+            aws ecs wait services-stable \
+              --cluster ${{ env.CLUSTER_NAME }} \
+              --services ${{ steps.target.outputs.service }}
+          fi
+
+      - name: Health check target
+        run: |
+          for i in $(seq 1 10); do
+            HEALTHY=$(aws elbv2 describe-target-health \
+              --target-group-arn ${{ steps.target.outputs.tg_arn }} \
+              --query 'length(TargetHealthDescriptions[?TargetHealth.State==`healthy`])' \
+              --output text)
+            if [ "$HEALTHY" -ge 1 ]; then
+              echo "✅ Target has $HEALTHY healthy instances"
+              break
+            fi
+            echo "⏳ Waiting for healthy targets (attempt $i)..."
+            sleep 10
+          done
+
+      - name: Switch traffic
+        run: |
+          RULE_ARN=$(aws elbv2 describe-rules \
+            --listener-arn ${{ secrets.ALB_LISTENER_ARN }} \
+            --query 'Rules[?IsDefault==`true`].RuleArn' \
+            --output text)
+
+          aws elbv2 modify-rule \
+            --rule-arn "$RULE_ARN" \
+            --actions Type=forward,TargetGroupArn=${{ steps.target.outputs.tg_arn }}
+
+          echo "✅ Traffic switched to ${{ inputs.target_environment }}"
+
+      - name: Log rollback
+        run: |
+          echo "═══════════════════════════════════════════"
+          echo "  ROLLBACK COMPLETE"
+          echo "  Target: ${{ inputs.target_environment }}"
+          echo "  Reason: ${{ inputs.reason }}"
+          echo "  Time:   $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "  Actor:  ${{ github.actor }}"
+          echo "═══════════════════════════════════════════"

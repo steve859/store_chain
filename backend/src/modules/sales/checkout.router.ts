@@ -7,9 +7,9 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { authenticateToken } from '../../middlewares/auth.middleware';
-import { requireActiveStore } from '../../middlewares/store.middleware';
+// import { requireActiveStore } from '../../middlewares/store.middleware';
 import { checkoutService, CreateCheckoutRequest, AddItemRequest, CheckoutRequest } from './checkout.service';
-import { logger } from '../../utils/logger';
+import { logger } from '../../lib/monitoring/logger';
 
 const router = Router();
 
